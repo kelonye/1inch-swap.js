@@ -1,3 +1,5 @@
+![](https://1inch-swap.surge.sh/shot.png)
+
 ### Prerequisites
 
 - Node.JS 12+
@@ -12,6 +14,10 @@
   - Ran `yarn`
   - Ran `make` or `yarn start`
 - Visit the example page at http://localhost:3500
+
+### Demo
+
+https://1inch-swap.surge.sh
 
 ### How it works
 

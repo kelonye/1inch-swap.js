@@ -120,9 +120,9 @@ class Swap {
 
     this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
     this.quotePriceImpact.innerText = `>0.01%`;
-    this.quotePriceImpact.classList.add('red');
+    this.quotePriceImpact.classList.add('green');
     this.quoteFee.innerText = `≈ $2.6`;
-    this.quoteFee.classList.add('red');
+    this.quoteFee.classList.add('green');
 
     this.approve = approve;
 
