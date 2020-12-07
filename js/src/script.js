@@ -353,32 +353,32 @@ class Swap {
       fromAssetDecimals
     );
 
-    const erc20Abi = await import('./abis/erc20.json');
-    const fromAssetContract = new this.ethers.Contract(
-      fromAssetAddress,
-      erc20Abi,
-      this.getSigner()
-    );
-    const toAssetContract = new this.ethers.Contract(
-      toAssetAddress,
-      erc20Abi,
-      this.getSigner()
-    );
+    // const erc20Abi = await import('./abis/erc20.json');
+    // const fromAssetContract = new this.ethers.Contract(
+    //   fromAssetAddress,
+    //   erc20Abi,
+    //   this.getSigner()
+    // );
+    // const toAssetContract = new this.ethers.Contract(
+    //   toAssetAddress,
+    //   erc20Abi,
+    //   this.getSigner()
+    // );
 
-    let fromBalanceBefore, toBalanceBefore;
-    const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
-    const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
-    debug('from eth (%s) to eth(%s)', fromEthereum, toEthereum);
-    if (fromEthereum) {
-      fromBalanceBefore = await this.ethersWallet.getBalance();
-      toBalanceBefore = await toAssetContract.balanceOf(address);
-    } else if (toEthereum) {
-      fromBalanceBefore = await fromAssetContract.balanceOf(address);
-      toBalanceBefore = await this.ethersWallet.getBalance();
-    } else {
-      fromBalanceBefore = await fromAssetContract.balanceOf(address);
-      toBalanceBefore = await toAssetContract.balanceOf(address);
-    }
+    // let fromBalanceBefore, toBalanceBefore;
+    // const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
+    // const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
+    // debug('from eth (%s) to eth(%s)', fromEthereum, toEthereum);
+    // if (fromEthereum) {
+    //   fromBalanceBefore = await this.ethersWallet.getBalance();
+    //   toBalanceBefore = await toAssetContract.balanceOf(address);
+    // } else if (toEthereum) {
+    //   fromBalanceBefore = await fromAssetContract.balanceOf(address);
+    //   toBalanceBefore = await this.ethersWallet.getBalance();
+    // } else {
+    //   fromBalanceBefore = await fromAssetContract.balanceOf(address);
+    //   toBalanceBefore = await toAssetContract.balanceOf(address);
+    // }
 
     // swap
     const oneSplitAbi = await import('./abis/onesplit.json');

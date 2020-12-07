@@ -27,4 +27,4 @@ Todo.
 
 Todo.
 
-Project is a submission to the [Inch widget hackathon bounty](https://gitcoin.co/issue/1inch-exchange/1inchProtocol/64/100024353).
+Project is a submission to the [1inch widget hackathon bounty](https://gitcoin.co/issue/1inch-exchange/1inchProtocol/64/100024353).
