@@ -35,9 +35,9 @@ class Swap {
   validateOptions({ toEthereum, toTokenAddress, defaultAmount }) {
     // todo: validate `toTokenAddress`
 
-    // validate `amount`
+    // validate `defaultAmount`
     defaultAmount = Number(defaultAmount);
-    if (defaultAmount <= 0) throw new Error('invalid amount');
+    if (defaultAmount <= 0) throw new Error('invalid default amount');
 
     return {
       toEthereum,
@@ -169,30 +169,6 @@ class Swap {
     });
   }
 
-  async getQuote({
-    fromAssetAddress,
-    toAssetDecimals,
-    fromAssetDecimals,
-    toAssetAddress,
-    fromAssetAmount,
-  }) {
-    const abi = await import('./abis/onesplit.json');
-    const contract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      abi,
-      this.getSigner()
-    );
-    return await contract.getExpectedReturn(
-      fromAssetAddress,
-      toAssetAddress,
-      this.ethers.utils.parseUnits(
-        fromAssetAmount.toString(),
-        fromAssetDecimals
-      ),
-      100,
-      0
-    );
-  }
   async onGetInitialQuote(
     sid,
     {
@@ -333,11 +309,15 @@ class Swap {
     });
   }
 
-  async onApprove(sid, { fromAssetAddress, fromAssetDecimals, amount }) {
-    const value = this.ethers.utils
-      .parseUnits(amount.toString(), fromAssetDecimals)
+  async onApprove(
+    sid,
+    { fromAssetAddress, fromAssetDecimals, fromAssetAmount }
+  ) {
+    fromAssetAmount = this.ethers.utils
+      .parseUnits(fromAssetAmount.toString(), fromAssetDecimals)
       .mul(101)
       .div(100);
+
     const erc20Abi = await import('./abis/erc20.json');
     const fromAssetContract = new this.ethers.Contract(
       fromAssetAddress,
@@ -345,7 +325,10 @@ class Swap {
       this.getSigner()
     );
     try {
-      const tx = await fromAssetContract.approve(ONE_SPLIT_ADDRESS, value);
+      const tx = await fromAssetContract.approve(
+        ONE_SPLIT_ADDRESS,
+        fromAssetAmount
+      );
       await tx.wait();
       this.postMessageToIframe(sid, 'approved');
     } catch (err) {
@@ -361,10 +344,15 @@ class Swap {
       fromAssetDecimals,
       toAssetAddress,
       toAssetDecimals,
-      amount,
+      fromAssetAmount,
       address,
     }
   ) {
+    fromAssetAmount = this.ethers.utils.parseUnits(
+      fromAssetAmount.toString(),
+      fromAssetDecimals
+    );
+
     const erc20Abi = await import('./abis/erc20.json');
     const fromAssetContract = new this.ethers.Contract(
       fromAssetAddress,
@@ -393,43 +381,36 @@ class Swap {
     }
 
     // swap
-    const quote = await this.getQuote({
-      fromAssetAddress,
-      toAssetDecimals,
-      fromAssetDecimals,
-      toAssetAddress,
-      fromAssetAmount: amount,
-    });
     const oneSplitAbi = await import('./abis/onesplit.json');
     const oneSplitContract = new this.ethers.Contract(
       ONE_SPLIT_ADDRESS,
       oneSplitAbi,
       this.getSigner()
     );
-    const value = await this.ethers.utils.parseUnits(
-      amount.toString(),
-      toAssetDecimals
+
+    const quote = await oneSplitContract.getExpectedReturn(
+      fromAssetAddress,
+      toAssetAddress,
+      fromAssetAmount,
+      100,
+      0
     );
+
     try {
       const tx = await oneSplitContract.swap(
         fromAssetAddress,
         toAssetAddress,
-        value,
+        fromAssetAmount,
         quote.returnAmount,
         quote.distribution,
         0
       );
       // await tx.wait();
-      // this.postMessageToIframe(sid, 'swaped', {
-      //   transactionHash: tx.hash,
-      // });
+      this.postMessageToIframe(sid, 'swaped', {
+        transactionHash: tx.hash,
+      });
     } catch (err) {
       debug('error %s', err.message);
-      // if (err.code === 4001) {
-      //   this.onCancel();
-      // } else {
-      //   this.options.onError && this.options.onError(err);
-      // }
       this.postMessageToIframe(sid, 'error', err);
     }
   }

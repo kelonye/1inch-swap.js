@@ -169,7 +169,7 @@ class Swap {
       this.postMessageToParentWindow('approve', {
         fromAssetAddress: this.fromAsset.address,
         fromAssetDecimals: this.fromAsset.decimals,
-        amount: this.fromAssetAmount,
+        fromAssetAmount: this.fromAssetAmount,
       });
     } else {
       debug('swaping..');
@@ -180,7 +180,7 @@ class Swap {
         fromAssetDecimals: this.fromAsset.decimals,
         toAssetAddress: this.toAsset.address,
         toAssetDecimals: this.toAsset.decimals,
-        amount: this.fromAssetAmount,
+        fromAssetAmount: this.fromAssetAmount,
         address: this.address,
       });
     }
