@@ -21,15 +21,16 @@ function onStartSwap(e) {
   debug('swaping..');
 
   const close = window.oneInch({
-    toTokenAddress: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+    toTokenAddress: '0x6b175474e89094c44da98b954eedeac495271d0f',
     defaultAmount: 6,
     async onSwap(transactionHash) {
+      close();
+
       debug('bought %s!', transactionHash);
 
       button.innerHTML = 'Bought <span style="font-family: none;">✓</span>';
       await notify('success', 'Done!', 'Waiting for transaction to be mined..');
       button.innerHTML = 'Swap';
-      close();
     },
     onError(e) {
       close();
