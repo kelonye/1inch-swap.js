@@ -16,16 +16,16 @@ class Swap {
     this.close = document.getElementById('close');
     this.loader = document.getElementById('boot-loader-container');
 
-    this.fromAssetAmountInput = document.querySelector('input');
-    this.fromAssetSelect = document.querySelector('select');
-    this.fromBalance = document.getElementById('from-balance');
-    this.fromAssetUSDEstimate = document.getElementById(
-      'from-asset-usd-estimate'
-    );
+    this.fromAssetContainer = document.querySelector('.from-asset');
+    this.fromAssetAmountInput = this.fromAssetContainer.querySelector('input');
+    this.fromAssetSelect = this.fromAssetContainer.querySelector('select');
+    this.fromBalance = this.fromAssetContainer.querySelector('.balance');
+    this.fromAssetUSDEstimate = this.fromAssetContainer.querySelector('.usd');
 
-    this.toAssetAmountInput = document.querySelector('input');
-    this.toAssetSelect = document.querySelector('select');
-    this.toAssetUSDEstimate = document.getElementById('to-asset-usd-estimate');
+    this.toAssetContainer = document.querySelector('.to-asset');
+    this.toAssetAmountInput = this.toAssetContainer.querySelector('input');
+    this.toAssetSelect = this.toAssetContainer.querySelector('select');
+    this.toAssetUSDEstimate = this.toAssetContainer.querySelector('.usd');
 
     this.quoteRate = document.getElementById('quote-rate');
     this.quotePriceImpact = document.getElementById('quote-price-impact');
@@ -55,14 +55,14 @@ class Swap {
     const fromAsset = fromAssets[0];
     this.fromAsset = fromAsset;
     this.fromAssets = fromAssets;
-    this.form.fromAsset.innerHTML = fromAssets
+    this.fromAssetSelect.innerHTML = fromAssets
       .map(({ symbol }, i) => `<option value=${i}>${symbol}</option>`)
       .join('');
-    this.form.fromAsset.value = 0;
+    this.fromAssetSelect.value = 0;
 
     this.toAsset = toAsset;
-    this.form.toAsset.innerHTML = `<option>${this.toAsset.symbol}</option>`;
-    this.form.toAsset.value = this.toAsset.symbol;
+    this.toAssetSelect.innerHTML = `<option>${this.toAsset.symbol}</option>`;
+    this.toAssetAmountInput.value = this.toAsset.symbol;
 
     dom.hide(this.loader);
     dom.show(this.form);
@@ -75,6 +75,10 @@ class Swap {
 
   onAmountChange(e) {
     this.fromAssetAmount = parseFloat(e.target.value);
+    if (!this.fromAssetAmount) {
+      this.toAssetAmountInput.value = '0';
+      return;
+    }
     this.updateQuote();
   }
 
@@ -104,13 +108,14 @@ class Swap {
     toAssetAmount,
     rate,
     approve,
+    hasSufficientBalance,
   }) {
     if (!this.fromAssetAmount) {
-      this.form.fromAssetAmount.value = this.fromAssetAmount = fromAssetAmount;
+      this.fromAssetAmountInput.value = this.fromAssetAmount = fromAssetAmount;
     }
     this.fromAssetUSDEstimate.innerText = `≈ $${fromAssetUsd}`;
 
-    this.form.toAssetAmount.value = toAssetAmount;
+    this.toAssetAmountInput.value = toAssetAmount;
     this.toAssetUSDEstimate.innerText = `≈ ${toAssetUsd}`;
 
     this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
@@ -121,19 +126,27 @@ class Swap {
 
     this.approve = approve;
 
-    if (approve) {
+    dom.attr(this.button, 'disabled', this.address && !hasSufficientBalance);
+
+    if (!this.address) {
+      this.setButtonText('Connect Wallet');
+    } else if (!hasSufficientBalance) {
+      this.setButtonText('Insufficent Balance');
+    } else if (approve) {
       this.setButtonText(`Approve ${this.fromAsset.symbol}`);
     } else if (this.address) {
-      // this.setButtonText(`Get (${toAssetAmount} ${this.toAsset.symbol}) →`);
       this.setButtonText('Swap →');
     }
   }
 
   async onApproved() {
+    this.setIsWorking(false);
     this.updateQuote();
   }
 
   async onSwapped(props) {
+    this.setIsWorking(false);
+
     this.setButtonText(
       'Swaped <span class="pl-2" style="font-family: none;">✓</span>'
     );
@@ -194,14 +207,13 @@ class Swap {
     dom.attr(this.button, 'disabled', working);
     if (working) {
       this.setButtonText(text);
-    } else {
-      this.updateQuote();
     }
   }
 
   onError(err) {
     debug('received error: %s', err.message); // todo display error to user
-    this.setIsWorking();
+    this.setIsWorking(false);
+    this.updateQuote();
   }
 
   handleMessages() {

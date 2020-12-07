@@ -4,6 +4,8 @@ import debug from './debug';
 const INFURA_ID = process.env.INFURA_ID;
 const IFRAME_HOST = process.env.IFRAME_HOST;
 
+const PRECISION = 1e4;
+
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const ONE_SPLIT_ADDRESS = '0xC586BeF4a0992C495Cf22e1aeEE4E446CECDee0E';
 const ONE_SPLIT_DEXES = [
@@ -101,28 +103,6 @@ class Swap {
     this.options.onCancel && this.options.onCancel();
   }
 
-  async getHasSpendAllowance(assetAddress, decimals, amount) {
-    if (assetAddress === ETH_ONE_INCH_ADDR) {
-      return true;
-    }
-
-    const erc20Abi = await import('./abis/erc20.json');
-    const fromAssetContract = new this.ethers.Contract(
-      assetAddress,
-      erc20Abi,
-      this.ethersWallet
-    );
-    const allowance = await fromAssetContract.allowance(
-      this.address,
-      ONE_SPLIT_ADDRESS
-    );
-    const approve = await this.ethers.utils
-      .parseEther(amount.toString(), decimals)
-      .lte(allowance);
-    debug('approval required: %s', approve);
-    return approve;
-  }
-
   async onGetFromAssets(sid, { toEthereum, toTokenAddress, defaultAmount }) {
     const { ethers } = await import('ethers');
     this.ethers = ethers;
@@ -143,7 +123,7 @@ class Swap {
       const contract = new this.ethers.Contract(
         toTokenAddress,
         abi,
-        this.defaultProvider
+        this.getSigner()
       );
       toAsset.address = toTokenAddress;
       toAsset.symbol = (await contract.symbol()).toUpperCase();
@@ -200,7 +180,7 @@ class Swap {
     const contract = new this.ethers.Contract(
       ONE_SPLIT_ADDRESS,
       abi,
-      this.defaultProvider
+      this.getSigner()
     );
     return await contract.getExpectedReturn(
       fromAssetAddress,
@@ -223,35 +203,51 @@ class Swap {
       toAssetAmount,
     }
   ) {
+    toAssetAmount = this.ethers.utils.parseUnits(
+      toAssetAmount.toString(),
+      toAssetDecimals
+    );
+
     const abi = await import('./abis/onesplit.json');
     const contract = new this.ethers.Contract(
       ONE_SPLIT_ADDRESS,
       abi,
-      this.defaultProvider
+      this.getSigner()
     );
     const result = await contract.getExpectedReturn(
       toAssetAddress,
       fromAssetAddress,
-      this.ethers.utils.parseUnits(toAssetAmount.toString(), toAssetDecimals),
+      toAssetAmount,
       100,
       0
     );
 
-    const fromAssetAmount = await this.ethers.utils.formatUnits(
-      result.returnAmount,
-      fromAssetDecimals
-    );
+    const fromAssetAmount = result.returnAmount;
     const fromAssetUsd = 600;
     const toAssetUsd = 600;
-    const rate = toAssetAmount / fromAssetAmount;
+    const rate =
+      toAssetAmount
+        .mul(PRECISION)
+        .div(fromAssetAmount)
+        .toNumber() / PRECISION;
 
     this.postMessageToIframe(sid, 'set-quote', {
-      fromAssetAmount,
+      fromAssetAmount: this.ethers.utils.formatUnits(
+        fromAssetAmount,
+        fromAssetDecimals
+      ),
       fromAssetUsd,
-      toAssetAmount,
+      toAssetAmount: this.ethers.utils.formatUnits(
+        toAssetAmount,
+        toAssetDecimals
+      ),
       toAssetUsd,
       rate,
     });
+  }
+
+  getSigner() {
+    return this.ethersWallet || this.defaultProvider;
   }
 
   async onGetQuote(
@@ -264,55 +260,89 @@ class Swap {
       fromAssetAmount,
     }
   ) {
-    const abi = await import('./abis/onesplit.json');
-    const contract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      abi,
-      this.defaultProvider
+    fromAssetAmount = this.ethers.utils.parseUnits(
+      fromAssetAmount.toString(),
+      fromAssetDecimals
     );
-    const result = await contract.getExpectedReturn(
+
+    const oneSplitAbi = await import('./abis/onesplit.json');
+    const oneSplitContract = new this.ethers.Contract(
+      ONE_SPLIT_ADDRESS,
+      oneSplitAbi,
+      this.getSigner()
+    );
+    const result = await oneSplitContract.getExpectedReturn(
       fromAssetAddress,
       toAssetAddress,
-      this.ethers.utils.parseUnits(
-        fromAssetAmount.toString(),
-        fromAssetDecimals
-      ),
+      fromAssetAmount,
       100,
       0
     );
 
-    const toAssetAmount = await this.ethers.utils.formatUnits(
-      result.returnAmount,
-      toAssetDecimals
-    );
+    const toAssetAmount = result.returnAmount;
     const fromAssetUsd = 600;
     const toAssetUsd = 600;
-    const rate = toAssetAmount / fromAssetAmount;
+    const rate =
+      fromAssetAmount
+        .mul(PRECISION)
+        .div(toAssetAmount)
+        .toNumber() / PRECISION;
+
+    let hasSufficientBalance = false;
+    let approve = false;
+
+    if (this.address) {
+      let balance;
+      if (fromAssetAddress === ETH_ONE_INCH_ADDR) {
+        balance = await this.ethersWallet.getBalance();
+      } else {
+        const erc20Abi = await import('./abis/erc20.json');
+        const fromAssetContract = new this.ethers.Contract(
+          fromAssetAddress,
+          erc20Abi,
+          this.getSigner()
+        );
+        balance = await fromAssetContract.balanceOf(this.address);
+        const allowance = await fromAssetContract.allowance(
+          this.address,
+          ONE_SPLIT_ADDRESS
+        );
+        approve = fromAssetAmount.gt(allowance);
+      }
+
+      hasSufficientBalance = balance.gte(fromAssetAmount);
+
+      debug('approval required: %s', approve);
+      debug('has sufficient balance: %s', hasSufficientBalance);
+    }
 
     this.postMessageToIframe(sid, 'set-quote', {
-      fromAssetAmount,
+      fromAssetAmount: this.ethers.utils.formatUnits(
+        fromAssetAmount,
+        fromAssetDecimals
+      ),
       fromAssetUsd,
-      toAssetAmount,
+      toAssetAmount: this.ethers.utils.formatUnits(
+        toAssetAmount,
+        toAssetDecimals
+      ),
       toAssetUsd,
       rate,
-      approve: !(await this.getHasSpendAllowance(
-        fromAssetAddress,
-        fromAssetDecimals,
-        fromAssetAmount
-      )),
+      hasSufficientBalance,
+      approve,
     });
   }
 
   async onApprove(sid, { fromAssetAddress, fromAssetDecimals, amount }) {
-    const value = await this.ethers.utils.parseEther(
-      amount.toString(),
-      fromAssetDecimals
-    );
+    const value = this.ethers.utils
+      .parseUnits(amount.toString(), fromAssetDecimals)
+      .mul(101)
+      .div(100);
     const erc20Abi = await import('./abis/erc20.json');
     const fromAssetContract = new this.ethers.Contract(
       fromAssetAddress,
       erc20Abi,
-      this.ethersWallet
+      this.getSigner()
     );
     try {
       const tx = await fromAssetContract.approve(ONE_SPLIT_ADDRESS, value);
@@ -327,7 +357,6 @@ class Swap {
   async onSwap(
     sid,
     {
-      toEthereum,
       fromAssetAddress,
       fromAssetDecimals,
       toAssetAddress,
@@ -340,16 +369,17 @@ class Swap {
     const fromAssetContract = new this.ethers.Contract(
       fromAssetAddress,
       erc20Abi,
-      this.ethersWallet
+      this.getSigner()
     );
     const toAssetContract = new this.ethers.Contract(
       toAssetAddress,
       erc20Abi,
-      this.ethersWallet
+      this.getSigner()
     );
 
     let fromBalanceBefore, toBalanceBefore;
     const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
+    const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
     debug('from eth (%s) to eth(%s)', fromEthereum, toEthereum);
     if (fromEthereum) {
       fromBalanceBefore = await this.ethersWallet.getBalance();
@@ -374,9 +404,9 @@ class Swap {
     const oneSplitContract = new this.ethers.Contract(
       ONE_SPLIT_ADDRESS,
       oneSplitAbi,
-      this.ethersWallet
+      this.getSigner()
     );
-    const value = await this.ethers.utils.parseEther(
+    const value = await this.ethers.utils.parseUnits(
       amount.toString(),
       toAssetDecimals
     );
@@ -416,7 +446,7 @@ class Swap {
     this.showIframe(false);
 
     const web3Modal = new Web3Modal({
-      cacheProvider: true,
+      cacheProvider: true, // todo: provide a way for user to disconnect
       providerOptions: {
         mewconnect: {
           package: MewConnect,
@@ -432,7 +462,7 @@ class Swap {
         },
       },
     });
-    web3Modal.clearCachedProvider();
+
     this.web3Provider = await web3Modal.connect();
     this.web3Provider.on('accountsChanged', () => {});
     this.web3Provider.on('chainChanged', () => {});

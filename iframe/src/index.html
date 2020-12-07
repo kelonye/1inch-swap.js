@@ -21,23 +21,16 @@
 
       <div class="flex text-xs pr-4">
         <div class="flex-grow">You pay:</div>
-        <div id="from-balance" class="flex usd hidden">
-          Balance:&nbsp;<span></span>
-        </div>
+        <div class="flex usd balance hidden">Balance:&nbsp;<span></span></div>
       </div>
       <div class="flex flex-col select-input mt-1 mb-4 from-asset">
         <div class="flex px-4 pt-2 text-xs">
           <div class="flex-grow">From:</div>
-          <div class="usd" id="from-asset-usd-estimate"></div>
+          <div class="usd"></div>
         </div>
         <div class="flex">
-          <input
-            name="fromAssetAmount"
-            step="any"
-            type="text"
-            placeholder="Amount"
-          />
-          <select name="fromAsset"></select>
+          <input step="any" type="text" placeholder="Amount" />
+          <select></select>
         </div>
       </div>
 
@@ -49,11 +42,11 @@
       <div class="flex flex-col select-input mt-1 mb-4 to-asset">
         <div class="flex px-4 pt-2 text-xs">
           <div class="flex-grow">To (estimated):</div>
-          <div class="usd" id="to-asset-usd-estimate"></div>
+          <div class="usd"></div>
         </div>
         <div class="flex">
-          <input name="toAssetAmount" step="any" type="text" disabled />
-          <select name="toAsset" disabled></select>
+          <input step="any" type="text" disabled />
+          <select disabled></select>
         </div>
       </div>
 
