@@ -1,4 +1,5 @@
 import _debounce from 'lodash/debounce';
+import _camelCase from 'lodash/camelCase';
 import debug from './debug';
 import * as qs from './qs';
 import * as dom from './dom';
@@ -22,7 +23,7 @@ class Swap {
     this.fromAssetContainer = document.querySelector('.from-asset');
     this.fromAssetAmountInput = this.fromAssetContainer.querySelector('input');
     this.fromAssetSelect = this.fromAssetContainer.querySelector('select');
-    this.fromBalance = this.fromAssetContainer.querySelector('.balance');
+    this.fromBalance = document.getElementById('from-balance');
     this.fromAssetUSDEstimate = this.fromAssetContainer.querySelector('.usd');
 
     this.toAssetContainer = document.querySelector('.to-asset');
@@ -42,123 +43,58 @@ class Swap {
     this.handleMessage = e => this.handleMessageBound(e);
     this.handleMessages();
 
-    this.fromAssetAmountInput.oninput = e => this.onAmountChange(e);
-    this.fromAssetSelect.onchange = e => this.onAssetChange(e);
+    this.fromAssetAmountInput.oninput = e => this.handleAmountChange(e);
+    this.fromAssetSelect.onchange = e => this.handleAssetChange(e);
 
     this.form.onsubmit = e => this.connectWalletOrApproveOrSwap(e);
 
     this.close.onclick = () => this.postMessageToParentWindow('cancel');
   }
 
-  loadFromAssets() {
-    this.postMessageToParentWindow('get-from-assets', this.props);
+  handleMessages() {
+    if (window.addEventListener) {
+      window.addEventListener('message', this.handleMessage, false);
+    } else {
+      window.attachEvent('onmessage', this.handleMessage);
+    }
   }
 
-  onLoadFromAssets({ fromAssets, toAsset }) {
-    const fromAsset = fromAssets[0];
-    this.fromAsset = fromAsset;
-    this.fromAssets = fromAssets;
-    this.fromAssetSelect.innerHTML = fromAssets
-      .map(({ symbol }, i) => `<option value=${i}>${symbol}</option>`)
-      .join('');
-    this.fromAssetSelect.value = 0;
-
-    this.toAsset = toAsset;
-    this.toAssetSelect.innerHTML = `<option>${this.toAsset.symbol}</option>`;
-    this.toAssetAmountInput.value = this.toAsset.symbol;
-
-    dom.hide(this.loader);
-    dom.show(this.form);
-  }
-
-  onSetBalance(balance) {
-    this.fromBalance.querySelector('span').innerText = balance;
-    dom.show(this.fromBalance);
-  }
-
-  onAmountChange(e) {
-    this.fromAssetAmount = parseFloat(e.target.value);
-    if (!this.fromAssetAmount) {
-      this.toAssetAmountInput.value = '0';
+  async handleMessageBound(evt) {
+    let msg;
+    try {
+      msg = JSON.parse(evt.data);
+    } catch {
       return;
     }
-    this.updateQuote();
-  }
-
-  onAssetChange(e) {
-    this.fromAsset = this.fromAssets[parseInt(e.target.value)];
-    this.updateQuote();
-  }
-
-  setButtonText(text) {
-    this.button.innerHTML = text;
-  }
-
-  updateQuoteDebounced() {
-    this.postMessageToParentWindow('get-quote', {
-      fromAssetAddress: this.fromAsset.address,
-      fromAssetDecimals: this.fromAsset.decimals,
-      toAssetAddress: this.toAsset.address,
-      toAssetDecimals: this.toAsset.decimals,
-      fromAssetAmount: this.fromAssetAmount,
-    });
-  }
-
-  onUpdateQuote({
-    fromAssetAmount,
-    fromAssetUsd,
-    toAssetUsd,
-    toAssetAmount,
-    rate,
-    approve,
-    hasSufficientBalance,
-    feeUSD,
-    feeIsHigh,
-    priceImpact,
-    priceImpactIsHigh,
-  }) {
-    if (!this.fromAssetAmount) {
-      this.fromAssetAmountInput.value = this.fromAssetAmount = fromAssetAmount;
+    debug('msg: %s', msg.sid);
+    if (parseInt(msg.sid) !== parseInt(this.props.sid)) {
+      return debug('ignoring msg(%s) self(%s)', msg.sid, this.props.sid);
     }
-    this.fromAssetUSDEstimate.innerText = `≈ $${fromAssetUsd}`;
-
-    this.toAssetAmountInput.value = toAssetAmount;
-    this.toAssetUSDEstimate.innerText = `≈ ${toAssetUsd}`;
-
-    this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
-    this.quotePriceImpact.innerText = priceImpact;
-    this.quotePriceImpact.classList.add(priceImpactIsHigh ? 'red' : 'green');
-    this.quoteFee.innerText = `≈ $${feeUSD}`;
-    this.quoteFee.classList.add(feeIsHigh ? 'red' : 'green');
-
-    this.approve = approve;
-
-    dom.attr(this.button, 'disabled', this.address && !hasSufficientBalance);
-
-    if (!this.address) {
-      this.setButtonText('Connect Wallet');
-    } else if (!hasSufficientBalance) {
-      this.setButtonText('Insufficent Balance');
-    } else if (approve) {
-      this.setButtonText(`Approve ${this.fromAsset.symbol}`);
-    } else if (this.address) {
-      this.setButtonText('Swap →');
-    }
+    debug('msg %o', msg);
+    const meth = _camelCase('on-' + msg.type);
+    if (!this[meth]) return debug('unknown msg type %s', meth);
+    this[meth](msg.payload);
   }
 
-  async onApproved() {
-    this.setIsWorking(false);
-    this.updateQuote();
-  }
-
-  async onSwapped(props) {
-    this.setIsWorking(false);
-
-    this.setButtonText(
-      'Swaped <span class="pl-2" style="font-family: none;">✓</span>'
+  postMessageToParentWindow(type, payload = {}) {
+    window.top.postMessage(
+      JSON.stringify({ type, payload, sid: this.props.sid }),
+      this.props.host
     );
-    await sleep(3000);
-    this.postMessageToParentWindow('complete', props);
+  }
+
+  loadFromAssets() {
+    this.postMessageToParentWindow('load-from-assets', this.props);
+  }
+
+  setIsWorking(text) {
+    const working = !!text;
+    dom.attr(this.fromAssetAmountInput, 'disabled', working);
+    dom.attr(this.fromAssetSelect, 'disabled', working);
+    dom.attr(this.button, 'disabled', working);
+    if (working) {
+      this.setButtonText(text);
+    }
   }
 
   connectWalletOrApproveOrSwap(e) {
@@ -193,7 +129,43 @@ class Swap {
     }
   }
 
-  onConnected({ address }) {
+  handleAmountChange(e) {
+    this.fromAssetAmount = parseFloat(e.target.value);
+    if (!this.fromAssetAmount) {
+      this.toAssetAmountInput.value = '0';
+      return;
+    }
+    this.updateQuote();
+  }
+
+  handleAssetChange(e) {
+    this.fromAsset = this.fromAssets[parseInt(e.target.value)];
+    this.updateQuote();
+  }
+
+  setButtonText(text) {
+    this.button.innerHTML = text;
+  }
+
+  updateQuoteDebounced() {
+    this.postMessageToParentWindow('get-quote', {
+      fromAssetAddress: this.fromAsset.address,
+      fromAssetDecimals: this.fromAsset.decimals,
+      toAssetAddress: this.toAsset.address,
+      toAssetDecimals: this.toAsset.decimals,
+      fromAssetAmount: this.fromAssetAmount,
+    });
+  }
+
+  // events from iframe
+
+  onError(err) {
+    debug('received error: %s', err.message); // todo display error to user
+    this.setIsWorking(false);
+    this.updateQuote();
+  }
+
+  onConnect({ address }) {
     dom.hide(this.loader);
     dom.show(this.form);
 
@@ -204,86 +176,87 @@ class Swap {
       0,
       6
     )}....${address.slice(-4)}`;
+    dom.show(this.fromBalance);
     this.updateQuote();
   }
 
-  setIsWorking(text) {
-    const working = !!text;
-    dom.attr(this.fromAssetAmountInput, 'disabled', working);
-    dom.attr(this.fromAssetSelect, 'disabled', working);
-    dom.attr(this.button, 'disabled', working);
-    if (working) {
-      this.setButtonText(text);
+  onLoadFromAssets({ fromAssets, toAsset }) {
+    const fromAsset = fromAssets[0];
+    this.fromAsset = fromAsset;
+    this.fromAssets = fromAssets;
+    this.fromAssetSelect.innerHTML = fromAssets
+      .map(({ symbol }, i) => `<option value=${i}>${symbol}</option>`)
+      .join('');
+    this.fromAssetSelect.value = 0;
+
+    this.toAsset = toAsset;
+    this.toAssetSelect.innerHTML = `<option>${this.toAsset.symbol}</option>`;
+    this.toAssetAmountInput.value = this.toAsset.symbol;
+
+    dom.hide(this.loader);
+    dom.show(this.form);
+  }
+
+  onUpdateQuote({
+    fromAssetAmount,
+    fromAssetUsd,
+    toAssetUsd,
+    toAssetAmount,
+    fromAssetBalance,
+    rate,
+    approve,
+    hasSufficientBalance,
+    feeUSD,
+    feeIsHigh,
+    priceImpact,
+    priceImpactIsHigh,
+  }) {
+    if (!this.fromAssetAmount) {
+      this.fromAssetAmountInput.value = this.fromAssetAmount = fromAssetAmount;
+    }
+    this.fromAssetUSDEstimate.innerText = `≈ $${fromAssetUsd}`;
+
+    if (this.address) {
+      this.fromBalance.querySelector('span').innerText = fromAssetBalance;
+    }
+
+    this.toAssetAmountInput.value = toAssetAmount;
+    this.toAssetUSDEstimate.innerText = `≈ ${toAssetUsd}`;
+
+    this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
+    this.quotePriceImpact.innerText = priceImpact;
+    this.quotePriceImpact.classList.add(priceImpactIsHigh ? 'red' : 'green');
+    this.quoteFee.innerText = `≈ $${feeUSD}`;
+    this.quoteFee.classList.add(feeIsHigh ? 'red' : 'green');
+
+    this.approve = approve;
+
+    dom.attr(this.button, 'disabled', this.address && !hasSufficientBalance);
+
+    if (!this.address) {
+      this.setButtonText('Connect Wallet');
+    } else if (!hasSufficientBalance) {
+      this.setButtonText('Insufficent Balance');
+    } else if (approve) {
+      this.setButtonText(`Approve ${this.fromAsset.symbol}`);
+    } else if (this.address) {
+      this.setButtonText('Swap →');
     }
   }
 
-  onError(err) {
-    debug('received error: %s', err.message); // todo display error to user
+  async onApprove() {
     this.setIsWorking(false);
     this.updateQuote();
   }
 
-  handleMessages() {
-    if (window.addEventListener) {
-      window.addEventListener('message', this.handleMessage, false);
-    } else {
-      window.attachEvent('onmessage', this.handleMessage);
-    }
-  }
+  async onSwap(props) {
+    this.setIsWorking(false);
 
-  async handleMessageBound(evt) {
-    let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      return;
-    }
-    debug('msg: %s', msg.sid);
-    if (parseInt(msg.sid) !== parseInt(this.props.sid)) {
-      return debug('ignoring msg(%s) self(%s)', msg.sid, this.props.sid);
-    }
-    debug('msg %o', msg);
-    switch (msg.type) {
-      case 'set-from-assets': {
-        this.onLoadFromAssets(msg.payload);
-        break;
-      }
-
-      case 'set-quote': {
-        this.onUpdateQuote(msg.payload);
-        break;
-      }
-
-      case 'connected': {
-        this.onConnected(msg.payload);
-        break;
-      }
-
-      case 'approved': {
-        this.onApproved(msg.payload);
-        break;
-      }
-
-      case 'swaped': {
-        this.onSwapped(msg.payload);
-        break;
-      }
-
-      case 'error': {
-        this.onError(msg.payload);
-        break;
-      }
-
-      default:
-        debug('unknown msg type', msg.type);
-    }
-  }
-
-  postMessageToParentWindow(type, payload = {}) {
-    window.top.postMessage(
-      JSON.stringify({ type, payload, sid: this.props.sid }),
-      this.props.host
+    this.setButtonText(
+      'Swaped <span class="pl-2" style="font-family: none;">✓</span>'
     );
+    await sleep(3000);
+    this.postMessageToParentWindow('complete', props);
   }
 }
 

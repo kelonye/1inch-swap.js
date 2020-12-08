@@ -1,10 +1,12 @@
+import _camelCase from 'lodash/camelCase';
+import bn from 'big.js';
 import * as qs from './qs';
 import debug from './debug';
 
 const INFURA_ID = process.env.INFURA_ID;
 const IFRAME_HOST = process.env.IFRAME_HOST;
 
-const PRECISION = 1e4;
+const PRECISION = 4;
 
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
@@ -16,6 +18,48 @@ class Swap {
     this.handleMessage = e => this.handleMessageBound(e);
     this.handleMessages();
     this.createIframe();
+  }
+
+  handleMessages() {
+    if (window.addEventListener) {
+      window.addEventListener('message', this.handleMessage, false);
+    } else {
+      window.attachEvent('onmessage', this.handleMessage);
+    }
+  }
+
+  close() {
+    if (window.removeEventListener) {
+      window.removeEventListener('message', this.handleMessage, false);
+    } else {
+      window.detachEvent('onmessage', this.handleMessage);
+    }
+
+    document.body.removeChild(this.iframe);
+  }
+
+  handleMessageBound(evt) {
+    let msg;
+    try {
+      msg = JSON.parse(evt.data);
+    } catch {
+      return;
+    }
+    debug('msg: %s', msg.sid);
+    if (parseInt(msg.sid) !== parseInt(this.sid)) {
+      return debug('ignoring msg(%s) self(%s)', msg.sid, this.sid);
+    }
+    debug('msg %o', msg);
+    const meth = _camelCase('on-' + msg.type);
+    if (!this[meth]) return debug('unknown msg type %s', meth);
+    this[meth](msg.sid, msg.payload);
+  }
+
+  postMessageToIframe(sid, type, payload = {}) {
+    this.iframe.contentWindow.postMessage(
+      JSON.stringify({ type, payload, sid }),
+      IFRAME_HOST
+    );
   }
 
   validateOptions({ toEthereum, toTokenAddress, defaultAmount }) {
@@ -74,21 +118,6 @@ class Swap {
     this.iframe.style.display = show ? 'flex' : 'none';
   }
 
-  onClose() {
-    if (window.removeEventListener) {
-      window.removeEventListener('message', this.handleMessage, false);
-    } else {
-      window.detachEvent('onmessage', this.handleMessage);
-    }
-
-    document.body.removeChild(this.iframe);
-  }
-
-  onCancel() {
-    this.onClose();
-    this.options.onCancel && this.options.onCancel();
-  }
-
   getSigner() {
     return this.ethersWallet || this.defaultProvider;
   }
@@ -123,7 +152,60 @@ class Swap {
     };
   }
 
-  async onGetFromAssets(sid, { toEthereum, toTokenAddress, defaultAmount }) {
+  // messages from js
+
+  async onError(sid, error) {
+    this.options.onError(new Error(error));
+  }
+
+  onCancel() {
+    this.close();
+    this.options.onCancel && this.options.onCancel();
+  }
+
+  async onConnectWallet(sid) {
+    const { default: Web3Modal } = await import('web3modal');
+    const { default: MewConnect } = await import(
+      '@myetherwallet/mewconnect-web-client'
+    );
+    const { default: WalletConnectProvider } = await import(
+      '@walletconnect/web3-provider'
+    );
+
+    this.showIframe(false);
+
+    const web3Modal = new Web3Modal({
+      cacheProvider: true, // todo: provide a way for user to disconnect
+      providerOptions: {
+        mewconnect: {
+          package: MewConnect,
+          options: {
+            infuraId: INFURA_ID,
+          },
+        },
+        walletconnect: {
+          package: WalletConnectProvider,
+          options: {
+            infuraId: INFURA_ID,
+          },
+        },
+      },
+    });
+
+    this.web3Provider = await web3Modal.connect();
+    this.web3Provider.on('accountsChanged', () => {});
+    this.web3Provider.on('chainChanged', () => {});
+
+    this.ethersProvider = new this.ethers.providers.Web3Provider(
+      this.web3Provider
+    );
+    this.ethersWallet = this.ethersProvider.getSigner();
+    const address = (this.address = await this.ethersWallet.getAddress());
+    this.postMessageToIframe(sid, 'connect', { address });
+    this.showIframe(true);
+  }
+
+  async onLoadFromAssets(sid, { toEthereum, toTokenAddress, defaultAmount }) {
     const { ethers } = await import('ethers');
     this.ethers = ethers;
     this.defaultProvider = new ethers.providers.InfuraProvider(
@@ -138,16 +220,15 @@ class Swap {
       toAsset.decimals = 18;
       toAsset.isETH = true;
     } else {
-      3;
-      const abi = await import('./abis/erc20.json');
-      const contract = new this.ethers.Contract(
+      const erc20Abi = await import('./abis/erc20.json');
+      const erc20Contract = new this.ethers.Contract(
         toTokenAddress,
-        abi,
+        erc20Abi,
         this.getSigner()
       );
       toAsset.address = toTokenAddress;
-      toAsset.symbol = (await contract.symbol()).toUpperCase();
-      toAsset.decimals = await contract.decimals();
+      toAsset.symbol = (await erc20Contract.symbol()).toUpperCase();
+      toAsset.decimals = await erc20Contract.decimals();
     }
 
     // const { tokens } = await request(
@@ -173,7 +254,7 @@ class Swap {
     ];
     const fromAsset = fromAssets[0];
 
-    this.postMessageToIframe(sid, 'set-from-assets', {
+    this.postMessageToIframe(sid, 'load-from-assets', {
       fromAssets,
       toAsset,
     });
@@ -211,21 +292,11 @@ class Swap {
     });
 
     const fromAssetAmount = quote.returnAmount;
-    const rate =
-      toAssetAmount
-        .mul(PRECISION)
-        .div(fromAssetAmount)
-        .toNumber() / PRECISION;
+    const rate = toFixed(toAssetAmount, fromAssetAmount);
 
-    this.postMessageToIframe(sid, 'set-quote', {
-      fromAssetAmount: this.ethers.utils.formatUnits(
-        fromAssetAmount,
-        fromAssetDecimals
-      ),
-      toAssetAmount: this.ethers.utils.formatUnits(
-        toAssetAmount,
-        toAssetDecimals
-      ),
+    this.postMessageToIframe(sid, 'update-quote', {
+      fromAssetAmount: formatUnits(fromAssetAmount, fromAssetDecimals),
+      toAssetAmount: formatUnits(toAssetAmount, toAssetDecimals),
       rate,
       ...(await this.getQuoteStats(quote)),
     });
@@ -253,17 +324,13 @@ class Swap {
     });
 
     const toAssetAmount = quote.returnAmount;
-    const rate =
-      fromAssetAmount
-        .mul(PRECISION)
-        .div(toAssetAmount)
-        .toNumber() / PRECISION;
+    const rate = toFixed(fromAssetAmount, toAssetAmount);
 
     let hasSufficientBalance = false;
     let approve = false;
+    let balance;
 
     if (this.address) {
-      let balance;
       if (fromAssetAddress === ETH_ONE_INCH_ADDR) {
         balance = await this.ethersWallet.getBalance();
       } else {
@@ -287,16 +354,13 @@ class Swap {
       debug('has sufficient balance: %s', hasSufficientBalance);
     }
 
-    this.postMessageToIframe(sid, 'set-quote', {
-      fromAssetAmount: this.ethers.utils.formatUnits(
-        fromAssetAmount,
-        fromAssetDecimals
-      ),
-      toAssetAmount: this.ethers.utils.formatUnits(
-        toAssetAmount,
-        toAssetDecimals
-      ),
+    this.postMessageToIframe(sid, 'update-quote', {
+      fromAssetAmount: formatUnits(fromAssetAmount, fromAssetDecimals),
+      toAssetAmount: formatUnits(toAssetAmount, toAssetDecimals),
       rate,
+      fromAssetBalance: !balance
+        ? null
+        : formatUnits(balance, fromAssetDecimals),
       hasSufficientBalance,
       approve,
       ...(await this.getQuoteStats(quote)),
@@ -324,7 +388,7 @@ class Swap {
         fromAssetAmount
       );
       await tx.wait();
-      this.postMessageToIframe(sid, 'approved');
+      this.postMessageToIframe(sid, 'approve');
     } catch (err) {
       debug('error %s', err.message);
       this.postMessageToIframe(sid, 'error', err);
@@ -392,7 +456,7 @@ class Swap {
         fromEthereum ? { value: fromAssetAmount } : {}
       );
       // await tx.wait();
-      this.postMessageToIframe(sid, 'swaped', {
+      this.postMessageToIframe(sid, 'swap', {
         transactionHash: tx.hash,
       });
     } catch (err) {
@@ -401,131 +465,12 @@ class Swap {
     }
   }
 
-  async onConnectWallet(sid) {
-    const { default: Web3Modal } = await import('web3modal');
-    const { default: MewConnect } = await import(
-      '@myetherwallet/mewconnect-web-client'
-    );
-    const { default: WalletConnectProvider } = await import(
-      '@walletconnect/web3-provider'
-    );
-
-    this.showIframe(false);
-
-    const web3Modal = new Web3Modal({
-      cacheProvider: true, // todo: provide a way for user to disconnect
-      providerOptions: {
-        mewconnect: {
-          package: MewConnect,
-          options: {
-            infuraId: INFURA_ID,
-          },
-        },
-        walletconnect: {
-          package: WalletConnectProvider,
-          options: {
-            infuraId: INFURA_ID,
-          },
-        },
-      },
-    });
-
-    this.web3Provider = await web3Modal.connect();
-    this.web3Provider.on('accountsChanged', () => {});
-    this.web3Provider.on('chainChanged', () => {});
-
-    this.ethersProvider = new this.ethers.providers.Web3Provider(
-      this.web3Provider
-    );
-    this.ethersWallet = this.ethersProvider.getSigner();
-    const address = (this.address = await this.ethersWallet.getAddress());
-    this.postMessageToIframe(sid, 'connected', { address });
-    this.showIframe(true);
-  }
-
   async onComplete(sid, { transactionHash }) {
     if (this.options.onSwap) {
       this.options.onSwap(transactionHash);
     } else {
-      this.onClose();
+      this.close();
     }
-  }
-
-  async onError(sid, error) {
-    this.options.onError(new Error(error));
-  }
-
-  handleMessages() {
-    if (window.addEventListener) {
-      window.addEventListener('message', this.handleMessage, false);
-    } else {
-      window.attachEvent('onmessage', this.handleMessage);
-    }
-  }
-
-  handleMessageBound(evt) {
-    let msg;
-    try {
-      msg = JSON.parse(evt.data);
-    } catch {
-      return;
-    }
-    debug('msg: %s', msg.sid);
-    if (parseInt(msg.sid) !== parseInt(this.sid)) {
-      return debug('ignoring msg(%s) self(%s)', msg.sid, this.sid);
-    }
-    debug('msg %o', msg);
-    switch (msg.type) {
-      case 'error': {
-        this.onError(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'get-from-assets': {
-        this.onGetFromAssets(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'connect-wallet': {
-        this.onConnectWallet(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'get-quote': {
-        this.onGetQuote(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'approve': {
-        this.onApprove(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'swap': {
-        this.onSwap(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'complete': {
-        this.onComplete(msg.sid, msg.payload);
-        break;
-      }
-
-      case 'cancel': {
-        this.onCancel(msg.sid, msg.payload);
-        break;
-      }
-
-      default:
-        debug('unknown msg type');
-    }
-  }
-
-  postMessageToIframe(sid, type, payload = {}) {
-    this.iframe.contentWindow.postMessage(
-      JSON.stringify({ type, payload, sid }),
-      IFRAME_HOST
-    );
   }
 }
 
@@ -533,8 +478,18 @@ async function request(url) {
   return await (await fetch(url)).json();
 }
 
+function toFixed(a, b) {
+  return bn(a.toString())
+    .div(bn(b.toString()))
+    .toFixed(PRECISION);
+}
+
+function formatUnits(a, decimals) {
+  return toFixed(a, bn(10).pow(decimals));
+}
+
 window.oneInch = function(options) {
   debug('swap');
   const swap = new Swap(options);
-  return () => swap.onClose.call(swap);
+  return () => swap.close.call(swap);
 };
