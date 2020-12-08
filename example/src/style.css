@@ -9,7 +9,7 @@
 }
 
 body {
-  padding: 50px;
+  padding-top: 50px;
   width: 700px;
   margin: 0 auto;
   font-family: 'Work Sans', sans-serif;
@@ -43,11 +43,22 @@ button:after {
   border-bottom-right-radius: 100%;
 }
 
+button span {
+  position: absolute;
+  z-index: 2;
+  bottom: 0;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 button {
   color: var(--primary-color);
   position: relative;
-  margin: 0 20px;
-  width: 150px;
+  width: 30px;
   height: 44px;
 }
 

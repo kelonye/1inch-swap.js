@@ -1,3 +1,4 @@
+import _debounce from 'lodash/debounce';
 import debug from './debug';
 import * as qs from './qs';
 import * as dom from './dom';
@@ -6,6 +7,8 @@ window.onload = () => new Swap();
 
 class Swap {
   constructor() {
+    this.updateQuote = _debounce(this.updateQuoteDebounced.bind(this), 100);
+
     const querystring = qs.parse(window.location.search.substring(1));
     this.props = JSON.parse(atob(unescape(querystring.options)));
     debug('props %o', this.props);
@@ -91,7 +94,7 @@ class Swap {
     this.button.innerHTML = text;
   }
 
-  updateQuote() {
+  updateQuoteDebounced() {
     this.postMessageToParentWindow('get-quote', {
       fromAssetAddress: this.fromAsset.address,
       fromAssetDecimals: this.fromAsset.decimals,
@@ -109,6 +112,10 @@ class Swap {
     rate,
     approve,
     hasSufficientBalance,
+    feeUSD,
+    feeIsHigh,
+    priceImpact,
+    priceImpactIsHigh,
   }) {
     if (!this.fromAssetAmount) {
       this.fromAssetAmountInput.value = this.fromAssetAmount = fromAssetAmount;
@@ -119,10 +126,10 @@ class Swap {
     this.toAssetUSDEstimate.innerText = `≈ ${toAssetUsd}`;
 
     this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
-    this.quotePriceImpact.innerText = `>0.01%`;
-    this.quotePriceImpact.classList.add('green');
-    this.quoteFee.innerText = `≈ $2.6`;
-    this.quoteFee.classList.add('green');
+    this.quotePriceImpact.innerText = priceImpact;
+    this.quotePriceImpact.classList.add(priceImpactIsHigh ? 'red' : 'green');
+    this.quoteFee.innerText = `≈ $${feeUSD}`;
+    this.quoteFee.classList.add(feeIsHigh ? 'red' : 'green');
 
     this.approve = approve;
 

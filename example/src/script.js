@@ -2,14 +2,23 @@ import debug from './debug';
 
 debug('boot');
 
+const TOKENS = {
+  DAI: '0x6b175474e89094c44da98b954eedeac495271d0f',
+  UNI: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
+};
+
 let notification;
 let button;
+let select;
 window.onload = onLoad;
 
 function onLoad() {
   showExampleCode();
 
   notification = document.querySelector('.notification');
+
+  select = document.querySelector('select');
+
   button = document.querySelector('button');
   button.onclick = onStartSwap;
 }
@@ -18,11 +27,16 @@ function onStartSwap(e) {
   e.preventDefault();
   e.stopPropagation();
 
-  debug('swaping..');
+  const asset = select.value;
+  debug('swaping %s ..', asset);
 
   const close = window.oneInch({
-    toTokenAddress: '0x6b175474e89094c44da98b954eedeac495271d0f',
-    defaultAmount: 6,
+    ...('ETH' === asset
+      ? { toEthereum: true }
+      : {
+          toTokenAddress: TOKENS[asset],
+        }),
+    defaultAmount: 1,
     async onSwap(transactionHash) {
       close();
 

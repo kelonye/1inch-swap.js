@@ -7,21 +7,7 @@ const IFRAME_HOST = process.env.IFRAME_HOST;
 const PRECISION = 1e4;
 
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-const ONE_SPLIT_ADDRESS = '0xC586BeF4a0992C495Cf22e1aeEE4E446CECDee0E';
-const ONE_SPLIT_DEXES = [
-  'Uniswap',
-  'Kyber',
-  'Bancor',
-  'Oasis',
-  'CurveCompound',
-  'CurveUsdt',
-  'CurveY',
-  'Binance',
-  'Synthetix',
-  'UniswapCompound',
-  'UniswapChai',
-  'UniswapAave',
-];
+const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
 
 class Swap {
   constructor(options) {
@@ -101,6 +87,40 @@ class Swap {
   onCancel() {
     this.onClose();
     this.options.onCancel && this.options.onCancel();
+  }
+
+  getSigner() {
+    return this.ethersWallet || this.defaultProvider;
+  }
+
+  async getQuote({ fromAssetAddress, toAssetAddress, fromAssetAmount }) {
+    const oneSplitAbi = await import('./abis/onesplit.json');
+    const oneSplitContract = new this.ethers.Contract(
+      ONE_SPLIT_ADDRESS,
+      oneSplitAbi,
+      this.getSigner()
+    );
+    const quote = await oneSplitContract.getExpectedReturnWithGas(
+      fromAssetAddress,
+      toAssetAddress,
+      fromAssetAmount,
+      100,
+      0,
+      0
+    );
+    return { oneSplitContract, quote };
+  }
+
+  async getQuoteStats(quote) {
+    return {
+      fromAssetUsd: 600,
+      toAssetUsd: 600,
+
+      feeUSD: '2.5',
+      feeIsHigh: false,
+      priceImpact: '<0.01%',
+      priceImpactIsHigh: false,
+    };
   }
 
   async onGetFromAssets(sid, { toEthereum, toTokenAddress, defaultAmount }) {
@@ -184,23 +204,13 @@ class Swap {
       toAssetDecimals
     );
 
-    const abi = await import('./abis/onesplit.json');
-    const contract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      abi,
-      this.getSigner()
-    );
-    const result = await contract.getExpectedReturn(
-      toAssetAddress,
-      fromAssetAddress,
-      toAssetAmount,
-      100,
-      0
-    );
+    const { quote } = await this.getQuote({
+      fromAssetAddress: toAssetAddress,
+      toAssetAddress: fromAssetAddress,
+      fromAssetAmount: toAssetAmount,
+    });
 
-    const fromAssetAmount = result.returnAmount;
-    const fromAssetUsd = 600;
-    const toAssetUsd = 600;
+    const fromAssetAmount = quote.returnAmount;
     const rate =
       toAssetAmount
         .mul(PRECISION)
@@ -212,18 +222,13 @@ class Swap {
         fromAssetAmount,
         fromAssetDecimals
       ),
-      fromAssetUsd,
       toAssetAmount: this.ethers.utils.formatUnits(
         toAssetAmount,
         toAssetDecimals
       ),
-      toAssetUsd,
       rate,
+      ...(await this.getQuoteStats(quote)),
     });
-  }
-
-  getSigner() {
-    return this.ethersWallet || this.defaultProvider;
   }
 
   async onGetQuote(
@@ -241,23 +246,13 @@ class Swap {
       fromAssetDecimals
     );
 
-    const oneSplitAbi = await import('./abis/onesplit.json');
-    const oneSplitContract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      oneSplitAbi,
-      this.getSigner()
-    );
-    const result = await oneSplitContract.getExpectedReturn(
+    const { quote } = await this.getQuote({
       fromAssetAddress,
       toAssetAddress,
       fromAssetAmount,
-      100,
-      0
-    );
+    });
 
-    const toAssetAmount = result.returnAmount;
-    const fromAssetUsd = 600;
-    const toAssetUsd = 600;
+    const toAssetAmount = quote.returnAmount;
     const rate =
       fromAssetAmount
         .mul(PRECISION)
@@ -297,15 +292,14 @@ class Swap {
         fromAssetAmount,
         fromAssetDecimals
       ),
-      fromAssetUsd,
       toAssetAmount: this.ethers.utils.formatUnits(
         toAssetAmount,
         toAssetDecimals
       ),
-      toAssetUsd,
       rate,
       hasSufficientBalance,
       approve,
+      ...(await this.getQuoteStats(quote)),
     });
   }
 
@@ -366,8 +360,8 @@ class Swap {
     // );
 
     // let fromBalanceBefore, toBalanceBefore;
-    // const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
-    // const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
+    const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
+    const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
     // debug('from eth (%s) to eth(%s)', fromEthereum, toEthereum);
     // if (fromEthereum) {
     //   fromBalanceBefore = await this.ethersWallet.getBalance();
@@ -381,20 +375,11 @@ class Swap {
     // }
 
     // swap
-    const oneSplitAbi = await import('./abis/onesplit.json');
-    const oneSplitContract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      oneSplitAbi,
-      this.getSigner()
-    );
-
-    const quote = await oneSplitContract.getExpectedReturn(
+    const { oneSplitContract, quote } = await this.getQuote({
       fromAssetAddress,
       toAssetAddress,
       fromAssetAmount,
-      100,
-      0
-    );
+    });
 
     try {
       const tx = await oneSplitContract.swap(
@@ -403,7 +388,8 @@ class Swap {
         fromAssetAmount,
         quote.returnAmount,
         quote.distribution,
-        0
+        0x04,
+        fromEthereum ? { value: fromAssetAmount } : {}
       );
       // await tx.wait();
       this.postMessageToIframe(sid, 'swaped', {
