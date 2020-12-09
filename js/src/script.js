@@ -1,21 +1,22 @@
 import _camelCase from 'lodash/camelCase';
+import _keyBy from 'lodash/keyBy';
+import _bindAll from 'lodash/bindAll';
 import bn from 'big.js';
 import * as qs from './qs';
 import debug from './debug';
 
 const INFURA_ID = process.env.INFURA_ID;
 const IFRAME_HOST = process.env.IFRAME_HOST;
-
 const PRECISION = 4;
-
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
 
 class Swap {
   constructor(options) {
+    _bindAll(this, 'handleMessage', 'getAssetCoinGeckoId');
+
     this.options = options;
     this.sid = Date.now();
-    this.handleMessage = e => this.handleMessageBound(e);
     this.handleMessages();
     this.createIframe();
   }
@@ -38,7 +39,7 @@ class Swap {
     document.body.removeChild(this.iframe);
   }
 
-  handleMessageBound(evt) {
+  handleMessage(evt) {
     let msg;
     try {
       msg = JSON.parse(evt.data);
@@ -140,16 +141,62 @@ class Swap {
     return { oneSplitContract, quote };
   }
 
-  async getQuoteStats(quote) {
+  async getQuoteStats({
+    quote,
+
+    fromAssetAddress,
+    fromAssetDecimals,
+    fromAssetAmount,
+
+    toAssetAddress,
+    toAssetDecimals,
+    toAssetAmount,
+  }) {
+    const assetsCoinGeckoIds = [fromAssetAddress, toAssetAddress].map(
+      this.getAssetCoinGeckoId
+    );
+    const prices = await request(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${assetsCoinGeckoIds.join(
+        ','
+      )}&vs_currencies=usd`
+    );
+    debug('%o %o', assetsCoinGeckoIds, prices);
+
+    const fromAssetUsd = this.getAssetAmountToUSD({
+      assetAddress: fromAssetAddress,
+      assetDecimals: fromAssetDecimals,
+      amount: fromAssetAmount,
+      usd: prices[assetsCoinGeckoIds[0]].usd,
+    });
+    const toAssetUsd = this.getAssetAmountToUSD({
+      assetAddress: toAssetAddress,
+      assetDecimals: toAssetDecimals,
+      amount: toAssetAmount,
+      usd: prices[assetsCoinGeckoIds[1]].usd,
+    });
+
     return {
-      fromAssetUsd: 600,
-      toAssetUsd: 600,
+      fromAssetUsd,
+      toAssetUsd,
 
       feeUSD: '2.5',
       feeIsHigh: false,
       priceImpact: '<0.01%',
       priceImpactIsHigh: false,
     };
+  }
+
+  getAssetCoinGeckoId(assetAddress) {
+    return assetAddress === ETH_ONE_INCH_ADDR
+      ? 'ethereum'
+      : this.fromAssetsRegistry[assetAddress].id;
+  }
+
+  getAssetAmountToUSD({ assetAddress, assetDecimals, amount, usd }) {
+    return formatUnits(
+      bn(amount.toString()).mul(bn(usd.toString())),
+      assetDecimals
+    );
   }
 
   // messages from js
@@ -205,7 +252,7 @@ class Swap {
     this.showIframe(true);
   }
 
-  async onLoadFromAssets(sid, { toEthereum, toTokenAddress, defaultAmount }) {
+  async onIframeLoad(sid, { toEthereum, toTokenAddress, defaultAmount }) {
     const { ethers } = await import('ethers');
     this.ethers = ethers;
     this.defaultProvider = new ethers.providers.InfuraProvider(
@@ -231,30 +278,30 @@ class Swap {
       toAsset.decimals = await erc20Contract.decimals();
     }
 
-    // const { tokens } = await request(
-    //   'https://tokens.coingecko.com/uniswap/all.json'
-    // );
-
     const fromAssets = [
       {
+        id: 'uniswap',
         symbol: 'UNI',
         address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
         decimals: 18,
       },
       {
+        id: 'dai',
         symbol: 'DAI',
         address: '0x6b175474e89094c44da98b954eedeac495271d0f',
         decimals: 18,
       },
       {
+        id: 'ethereum',
         symbol: 'ETH',
         address: ETH_ONE_INCH_ADDR,
         decimals: 18,
       },
     ];
+    this.fromAssetsRegistry = _keyBy(fromAssets, 'address');
     const fromAsset = fromAssets[0];
 
-    this.postMessageToIframe(sid, 'load-from-assets', {
+    this.postMessageToIframe(sid, 'iframe-load', {
       fromAssets,
       toAsset,
     });
@@ -298,7 +345,17 @@ class Swap {
       fromAssetAmount: formatUnits(fromAssetAmount, fromAssetDecimals),
       toAssetAmount: formatUnits(toAssetAmount, toAssetDecimals),
       rate,
-      ...(await this.getQuoteStats(quote)),
+      ...(await this.getQuoteStats({
+        // quote,
+
+        fromAssetAddress,
+        fromAssetDecimals,
+        fromAssetAmount,
+
+        toAssetAddress,
+        toAssetDecimals,
+        toAssetAmount,
+      })),
     });
   }
 
@@ -363,7 +420,17 @@ class Swap {
         : formatUnits(balance, fromAssetDecimals),
       hasSufficientBalance,
       approve,
-      ...(await this.getQuoteStats(quote)),
+      ...(await this.getQuoteStats({
+        // quote,
+
+        fromAssetAddress,
+        fromAssetDecimals,
+        fromAssetAmount,
+
+        toAssetAddress,
+        toAssetDecimals,
+        toAssetAmount,
+      })),
     });
   }
 

@@ -1,5 +1,6 @@
 import _debounce from 'lodash/debounce';
 import _camelCase from 'lodash/camelCase';
+import _bindAll from 'lodash/bindAll';
 import debug from './debug';
 import * as qs from './qs';
 import * as dom from './dom';
@@ -8,8 +9,6 @@ window.onload = () => new Swap();
 
 class Swap {
   constructor() {
-    this.updateQuote = _debounce(this.updateQuoteDebounced.bind(this), 100);
-
     const querystring = qs.parse(window.location.search.substring(1));
     this.props = JSON.parse(atob(unescape(querystring.options)));
     debug('props %o', this.props);
@@ -36,11 +35,13 @@ class Swap {
     this.quoteFee = document.getElementById('quote-fee');
 
     this.setUpEventHandlers();
-    this.loadFromAssets();
+    this.load();
   }
 
   setUpEventHandlers() {
-    this.handleMessage = e => this.handleMessageBound(e);
+    _bindAll(this, 'handleMessage');
+    this.updateQuote = _debounce(this.updateQuoteDebounced.bind(this), 100);
+
     this.handleMessages();
 
     this.fromAssetAmountInput.oninput = e => this.handleAmountChange(e);
@@ -59,7 +60,7 @@ class Swap {
     }
   }
 
-  async handleMessageBound(evt) {
+  async handleMessage(evt) {
     let msg;
     try {
       msg = JSON.parse(evt.data);
@@ -83,8 +84,8 @@ class Swap {
     );
   }
 
-  loadFromAssets() {
-    this.postMessageToParentWindow('load-from-assets', this.props);
+  load() {
+    this.postMessageToParentWindow('iframe-load', this.props);
   }
 
   setIsWorking(text) {
@@ -118,7 +119,6 @@ class Swap {
       debug('swaping..');
       this.setIsWorking('Swaping..');
       this.postMessageToParentWindow('swap', {
-        toEthereum: this.props.toEthereum,
         fromAssetAddress: this.fromAsset.address,
         fromAssetDecimals: this.fromAsset.decimals,
         toAssetAddress: this.toAsset.address,
@@ -180,7 +180,7 @@ class Swap {
     this.updateQuote();
   }
 
-  onLoadFromAssets({ fromAssets, toAsset }) {
+  onIframeLoad({ fromAssets, toAsset }) {
     const fromAsset = fromAssets[0];
     this.fromAsset = fromAsset;
     this.fromAssets = fromAssets;
@@ -221,7 +221,7 @@ class Swap {
     }
 
     this.toAssetAmountInput.value = toAssetAmount;
-    this.toAssetUSDEstimate.innerText = `≈ ${toAssetUsd}`;
+    this.toAssetUSDEstimate.innerText = `≈ $${toAssetUsd}`;
 
     this.quoteRate.innerText = `1 ${this.fromAsset.symbol} = ${rate} ${this.toAsset.symbol}`;
     this.quotePriceImpact.innerText = priceImpact;
