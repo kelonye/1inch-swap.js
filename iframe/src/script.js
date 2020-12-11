@@ -40,7 +40,7 @@ class Swap {
 
   setUpEventHandlers() {
     _bindAll(this, 'handleMessage');
-    this.updateQuote = _debounce(this.updateQuoteDebounced.bind(this), 100);
+    this.getQuote = _debounce(this.getQuoteDebounced.bind(this), 100);
 
     this.handleMessages();
 
@@ -135,19 +135,19 @@ class Swap {
       this.toAssetAmountInput.value = '0';
       return;
     }
-    this.updateQuote();
+    this.getQuote();
   }
 
   handleAssetChange(e) {
     this.fromAsset = this.fromAssets[parseInt(e.target.value)];
-    this.updateQuote();
+    this.getQuote();
   }
 
   setButtonText(text) {
     this.button.innerHTML = text;
   }
 
-  updateQuoteDebounced() {
+  getQuoteDebounced() {
     this.postMessageToParentWindow('get-quote', {
       fromAssetAddress: this.fromAsset.address,
       fromAssetDecimals: this.fromAsset.decimals,
@@ -162,7 +162,7 @@ class Swap {
   onError(err) {
     debug('received error: %s', err.message); // todo display error to user
     this.setIsWorking(false);
-    this.updateQuote();
+    this.getQuote();
   }
 
   onConnect({ address }) {
@@ -177,7 +177,7 @@ class Swap {
       6
     )}....${address.slice(-4)}`;
     dom.show(this.fromBalance);
-    this.updateQuote();
+    this.getQuote();
   }
 
   onIframeLoad({ fromAssets, toAsset }) {
@@ -195,9 +195,19 @@ class Swap {
 
     dom.hide(this.loader);
     dom.show(this.form);
+
+    // get initial quote in the reverse
+    const toAssetAmount = this.props.defaultAmount || 1;
+    this.postMessageToParentWindow('get-initial-quote', {
+      fromAssetAddress: fromAsset.address,
+      fromAssetDecimals: fromAsset.decimals,
+      toAssetAddress: toAsset.address,
+      toAssetDecimals: toAsset.decimals,
+      toAssetAmount,
+    });
   }
 
-  onUpdateQuote({
+  onGetQuote({
     fromAssetAmount,
     fromAssetUsd,
     toAssetUsd,
@@ -230,7 +240,6 @@ class Swap {
     this.quoteFee.classList.add(feeIsHigh ? 'red' : 'green');
 
     this.approve = approve;
-
     dom.attr(this.button, 'disabled', this.address && !hasSufficientBalance);
 
     if (!this.address) {
@@ -246,12 +255,11 @@ class Swap {
 
   async onApprove() {
     this.setIsWorking(false);
-    this.updateQuote();
+    this.getQuote();
   }
 
   async onSwap(props) {
     this.setIsWorking(false);
-
     this.setButtonText(
       'Swaped <span class="pl-2" style="font-family: none;">✓</span>'
     );

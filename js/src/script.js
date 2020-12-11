@@ -1,7 +1,7 @@
 import _camelCase from 'lodash/camelCase';
 import _keyBy from 'lodash/keyBy';
 import _bindAll from 'lodash/bindAll';
-import bn from 'big.js';
+import bign from 'big.js';
 import * as qs from './qs';
 import debug from './debug';
 
@@ -10,6 +10,7 @@ const IFRAME_HOST = process.env.IFRAME_HOST;
 const PRECISION = 4;
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
+const SLIPPAGE = 1;
 
 class Swap {
   constructor(options) {
@@ -123,27 +124,49 @@ class Swap {
     return this.ethersWallet || this.defaultProvider;
   }
 
+  async getERC20Contract(address) {
+    const erc20Abi = await import('./abis/erc20.json');
+    return new this.ethers.Contract(address, erc20Abi, this.getSigner());
+  }
+
+  toFixed(a, b) {
+    if (this.isZero(bign(a)) || this.isZero(bign(b))) {
+      return '0';
+    }
+    return bign(a.toString())
+      .div(bign(b.toString()))
+      .toFixed(PRECISION);
+  }
+
+  formatUnits(a, decimals) {
+    return this.toFixed(a.toString(), bign(10).pow(decimals));
+  }
+
+  isZero(a) {
+    return a.eq(bign('0'));
+  }
+
+  // bn.js
+  bn(a) {
+    return this.ethers.BigNumber.from(a.toString());
+  }
+
   async getQuote({ fromAssetAddress, toAssetAddress, fromAssetAmount }) {
-    const oneSplitAbi = await import('./abis/onesplit.json');
-    const oneSplitContract = new this.ethers.Contract(
-      ONE_SPLIT_ADDRESS,
-      oneSplitAbi,
-      this.getSigner()
+    const { toTokenAmount, estimatedGas } = await request(
+      'https://api.1inch.exchange/v2.0/quote',
+      {
+        fromTokenAddress: fromAssetAddress,
+        toTokenAddress: toAssetAddress,
+        amount: fromAssetAmount.toString(),
+      }
     );
-    const quote = await oneSplitContract.getExpectedReturnWithGas(
-      fromAssetAddress,
-      toAssetAddress,
-      fromAssetAmount,
-      100,
-      0,
-      0
-    );
-    return { oneSplitContract, quote };
+    return {
+      toAssetAmount: this.bn(toTokenAmount),
+      estimatedGas,
+    };
   }
 
   async getQuoteStats({
-    quote,
-
     fromAssetAddress,
     fromAssetDecimals,
     fromAssetAmount,
@@ -156,9 +179,11 @@ class Swap {
       this.getAssetCoinGeckoId
     );
     const prices = await request(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${assetsCoinGeckoIds.join(
-        ','
-      )}&vs_currencies=usd`
+      'https://api.coingecko.com/api/v3/simple/price',
+      {
+        ids: assetsCoinGeckoIds.join(','),
+        vs_currencies: 'usd',
+      }
     );
     debug('%o %o', assetsCoinGeckoIds, prices);
 
@@ -179,9 +204,9 @@ class Swap {
       fromAssetUsd,
       toAssetUsd,
 
-      feeUSD: '2.5',
+      feeUSD: '-',
       feeIsHigh: false,
-      priceImpact: '<0.01%',
+      priceImpact: '-', // '<0.01%',
       priceImpactIsHigh: false,
     };
   }
@@ -193,8 +218,8 @@ class Swap {
   }
 
   getAssetAmountToUSD({ assetAddress, assetDecimals, amount, usd }) {
-    return formatUnits(
-      bn(amount.toString()).mul(bn(usd.toString())),
+    return this.formatUnits(
+      bign(amount.toString()).mul(bign(usd.toString())),
       assetDecimals
     );
   }
@@ -252,7 +277,7 @@ class Swap {
     this.showIframe(true);
   }
 
-  async onIframeLoad(sid, { toEthereum, toTokenAddress, defaultAmount }) {
+  async onIframeLoad(sid, { toEthereum, toTokenAddress }) {
     const { ethers } = await import('ethers');
     this.ethers = ethers;
     this.defaultProvider = new ethers.providers.InfuraProvider(
@@ -267,28 +292,25 @@ class Swap {
       toAsset.decimals = 18;
       toAsset.isETH = true;
     } else {
-      const erc20Abi = await import('./abis/erc20.json');
-      const erc20Contract = new this.ethers.Contract(
-        toTokenAddress,
-        erc20Abi,
-        this.getSigner()
-      );
+      const erc20Contract = await this.getERC20Contract(toTokenAddress);
       toAsset.address = toTokenAddress;
       toAsset.symbol = (await erc20Contract.symbol()).toUpperCase();
       toAsset.decimals = await erc20Contract.decimals();
     }
 
+    //const fromAssets = (await request('https://api.1inch.exchange/v2.0/tokens')).map;
+
     const fromAssets = [
-      {
-        id: 'uniswap',
-        symbol: 'UNI',
-        address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
-        decimals: 18,
-      },
       {
         id: 'dai',
         symbol: 'DAI',
         address: '0x6b175474e89094c44da98b954eedeac495271d0f',
+        decimals: 18,
+      },
+      {
+        id: 'uniswap',
+        symbol: 'UNI',
+        address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
         decimals: 18,
       },
       {
@@ -299,21 +321,10 @@ class Swap {
       },
     ];
     this.fromAssetsRegistry = _keyBy(fromAssets, 'address');
-    const fromAsset = fromAssets[0];
 
     this.postMessageToIframe(sid, 'iframe-load', {
       fromAssets,
       toAsset,
-    });
-
-    // get initial quote in the reverse
-    const toAssetAmount = defaultAmount || 1;
-    await this.onGetInitialQuote(sid, {
-      fromAssetAddress: fromAsset.address,
-      fromAssetDecimals: fromAsset.decimals,
-      toAssetAddress: toAsset.address,
-      toAssetDecimals: toAsset.decimals,
-      toAssetAmount,
     });
   }
 
@@ -332,22 +343,19 @@ class Swap {
       toAssetDecimals
     );
 
-    const { quote } = await this.getQuote({
+    const { toAssetAmount: fromAssetAmount } = await this.getQuote({
       fromAssetAddress: toAssetAddress,
       toAssetAddress: fromAssetAddress,
       fromAssetAmount: toAssetAmount,
     });
 
-    const fromAssetAmount = quote.returnAmount;
-    const rate = toFixed(toAssetAmount, fromAssetAmount);
+    const rate = this.toFixed(toAssetAmount, fromAssetAmount);
 
-    this.postMessageToIframe(sid, 'update-quote', {
-      fromAssetAmount: formatUnits(fromAssetAmount, fromAssetDecimals),
-      toAssetAmount: formatUnits(toAssetAmount, toAssetDecimals),
+    this.postMessageToIframe(sid, 'get-quote', {
+      fromAssetAmount: this.formatUnits(fromAssetAmount, fromAssetDecimals),
+      toAssetAmount: this.formatUnits(toAssetAmount, toAssetDecimals),
       rate,
       ...(await this.getQuoteStats({
-        // quote,
-
         fromAssetAddress,
         fromAssetDecimals,
         fromAssetAmount,
@@ -374,14 +382,13 @@ class Swap {
       fromAssetDecimals
     );
 
-    const { quote } = await this.getQuote({
+    const { toAssetAmount } = await this.getQuote({
       fromAssetAddress,
       toAssetAddress,
       fromAssetAmount,
     });
 
-    const toAssetAmount = quote.returnAmount;
-    const rate = toFixed(fromAssetAmount, toAssetAmount);
+    const rate = this.toFixed(toAssetAmount, fromAssetAmount);
 
     let hasSufficientBalance = false;
     let approve = false;
@@ -391,12 +398,7 @@ class Swap {
       if (fromAssetAddress === ETH_ONE_INCH_ADDR) {
         balance = await this.ethersWallet.getBalance();
       } else {
-        const erc20Abi = await import('./abis/erc20.json');
-        const fromAssetContract = new this.ethers.Contract(
-          fromAssetAddress,
-          erc20Abi,
-          this.getSigner()
-        );
+        const fromAssetContract = await this.getERC20Contract(fromAssetAddress);
         balance = await fromAssetContract.balanceOf(this.address);
         const allowance = await fromAssetContract.allowance(
           this.address,
@@ -411,18 +413,16 @@ class Swap {
       debug('has sufficient balance: %s', hasSufficientBalance);
     }
 
-    this.postMessageToIframe(sid, 'update-quote', {
-      fromAssetAmount: formatUnits(fromAssetAmount, fromAssetDecimals),
-      toAssetAmount: formatUnits(toAssetAmount, toAssetDecimals),
+    this.postMessageToIframe(sid, 'get-quote', {
+      fromAssetAmount: this.formatUnits(fromAssetAmount, fromAssetDecimals),
+      toAssetAmount: this.formatUnits(toAssetAmount, toAssetDecimals),
       rate,
       fromAssetBalance: !balance
         ? null
-        : formatUnits(balance, fromAssetDecimals),
+        : this.formatUnits(balance, fromAssetDecimals),
       hasSufficientBalance,
       approve,
       ...(await this.getQuoteStats({
-        // quote,
-
         fromAssetAddress,
         fromAssetDecimals,
         fromAssetAmount,
@@ -443,12 +443,7 @@ class Swap {
       .mul(101)
       .div(100);
 
-    const erc20Abi = await import('./abis/erc20.json');
-    const fromAssetContract = new this.ethers.Contract(
-      fromAssetAddress,
-      erc20Abi,
-      this.getSigner()
-    );
+    const fromAssetContract = await this.getERC20Contract(fromAssetAddress);
     try {
       const tx = await fromAssetContract.approve(
         ONE_SPLIT_ADDRESS,
@@ -478,51 +473,31 @@ class Swap {
       fromAssetDecimals
     );
 
-    // const erc20Abi = await import('./abis/erc20.json');
-    // const fromAssetContract = new this.ethers.Contract(
-    //   fromAssetAddress,
-    //   erc20Abi,
-    //   this.getSigner()
-    // );
-    // const toAssetContract = new this.ethers.Contract(
-    //   toAssetAddress,
-    //   erc20Abi,
-    //   this.getSigner()
-    // );
-
-    // let fromBalanceBefore, toBalanceBefore;
-    const fromEthereum = fromAssetAddress === ETH_ONE_INCH_ADDR;
-    const toEthereum = toAssetAddress === ETH_ONE_INCH_ADDR;
-    // debug('from eth (%s) to eth(%s)', fromEthereum, toEthereum);
-    // if (fromEthereum) {
-    //   fromBalanceBefore = await this.ethersWallet.getBalance();
-    //   toBalanceBefore = await toAssetContract.balanceOf(address);
-    // } else if (toEthereum) {
-    //   fromBalanceBefore = await fromAssetContract.balanceOf(address);
-    //   toBalanceBefore = await this.ethersWallet.getBalance();
-    // } else {
-    //   fromBalanceBefore = await fromAssetContract.balanceOf(address);
-    //   toBalanceBefore = await toAssetContract.balanceOf(address);
-    // }
-
-    // swap
-    const { oneSplitContract, quote } = await this.getQuote({
-      fromAssetAddress,
-      toAssetAddress,
-      fromAssetAmount,
-    });
-
     try {
-      const tx = await oneSplitContract.swap(
-        fromAssetAddress,
-        toAssetAddress,
-        fromAssetAmount,
-        quote.returnAmount,
-        quote.distribution,
-        0x04,
-        fromEthereum ? { value: fromAssetAmount } : {}
-      );
-      // await tx.wait();
+      const {
+        tx: {
+          from,
+          to,
+          data,
+          value,
+          // gasPrice,
+          // gas
+        },
+      } = await request('https://api.1inch.exchange/v2.0/swap', {
+        fromTokenAddress: fromAssetAddress,
+        toTokenAddress: toAssetAddress,
+        amount: fromAssetAmount.toString(),
+        fromAddress: this.address,
+        slippage: SLIPPAGE,
+      });
+      const tx = await this.ethersWallet.sendTransaction({
+        from,
+        to,
+        data,
+        value: this.bn(value),
+        // gasPrice,
+        // gas
+      });
       this.postMessageToIframe(sid, 'swap', {
         transactionHash: tx.hash,
       });
@@ -541,18 +516,11 @@ class Swap {
   }
 }
 
-async function request(url) {
+async function request(url, query) {
+  if (query) {
+    url += '?' + qs.stringify(query);
+  }
   return await (await fetch(url)).json();
-}
-
-function toFixed(a, b) {
-  return bn(a.toString())
-    .div(bn(b.toString()))
-    .toFixed(PRECISION);
-}
-
-function formatUnits(a, decimals) {
-  return toFixed(a, bn(10).pow(decimals));
 }
 
 window.oneInch = function(options) {

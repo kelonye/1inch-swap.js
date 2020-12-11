@@ -39,12 +39,8 @@ function onStartSwap(e) {
     defaultAmount: 1,
     async onSwap(transactionHash) {
       close();
-
       debug('bought %s!', transactionHash);
-
-      button.innerHTML = 'Bought <span style="font-family: none;">✓</span>';
       await notify('success', 'Done!', 'Waiting for transaction to be mined..');
-      button.innerHTML = 'Swap';
     },
     onError(e) {
       close();
