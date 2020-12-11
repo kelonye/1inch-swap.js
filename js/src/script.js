@@ -1,6 +1,8 @@
 import _camelCase from 'lodash/camelCase';
 import _keyBy from 'lodash/keyBy';
 import _bindAll from 'lodash/bindAll';
+import _memoize from 'lodash/memoize';
+import _orderBy from 'lodash/orderBy';
 import bign from 'big.js';
 import * as qs from './qs';
 import debug from './debug';
@@ -11,10 +13,22 @@ const PRECISION = 4;
 const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
 const SLIPPAGE = 1;
+const FAVORITE_TOKENS = [
+  'ETH',
+  'DAI',
+  'UNI',
+  'AAVE',
+  'YFI',
+  'BAND',
+  'LINK',
+  'CHI',
+  'WETH',
+];
 
 class Swap {
   constructor(options) {
-    _bindAll(this, 'handleMessage', 'getAssetCoinGeckoId');
+    _bindAll(this, 'handleMessage');
+    this.getAssetCoinGeckoId = _memoize(this.getAssetCoinGeckoIdMemoized);
 
     this.options = options;
     this.sid = Date.now();
@@ -175,8 +189,8 @@ class Swap {
     toAssetDecimals,
     toAssetAmount,
   }) {
-    const assetsCoinGeckoIds = [fromAssetAddress, toAssetAddress].map(
-      this.getAssetCoinGeckoId
+    const assetsCoinGeckoIds = await Promise.all(
+      [fromAssetAddress, toAssetAddress].map(this.getAssetCoinGeckoId)
     );
     const prices = await request(
       'https://api.coingecko.com/api/v3/simple/price',
@@ -211,10 +225,14 @@ class Swap {
     };
   }
 
-  getAssetCoinGeckoId(assetAddress) {
+  async getAssetCoinGeckoIdMemoized(assetAddress) {
     return assetAddress === ETH_ONE_INCH_ADDR
       ? 'ethereum'
-      : this.fromAssetsRegistry[assetAddress].id;
+      : (
+          await request(
+            `https://api.coingecko.com/api/v3/coins/ethereum/contract/${assetAddress}`
+          )
+        ).id;
   }
 
   getAssetAmountToUSD({ assetAddress, assetDecimals, amount, usd }) {
@@ -298,32 +316,29 @@ class Swap {
       toAsset.decimals = await erc20Contract.decimals();
     }
 
-    //const fromAssets = (await request('https://api.1inch.exchange/v2.0/tokens')).map;
-
-    const fromAssets = [
-      {
-        id: 'dai',
-        symbol: 'DAI',
-        address: '0x6b175474e89094c44da98b954eedeac495271d0f',
-        decimals: 18,
-      },
-      {
-        id: 'uniswap',
-        symbol: 'UNI',
-        address: '0x1f9840a85d5af5bf1d1762f925bdaddc4201f984',
-        decimals: 18,
-      },
-      {
-        id: 'ethereum',
-        symbol: 'ETH',
-        address: ETH_ONE_INCH_ADDR,
-        decimals: 18,
-      },
-    ];
-    this.fromAssetsRegistry = _keyBy(fromAssets, 'address');
+    const favoriteTokens = {};
+    const { tokens } = await request('https://api.1inch.exchange/v2.0/tokens');
+    const fromAssets = [];
+    for (const address in tokens) {
+      const { name, symbol, decimals } = tokens[address];
+      const fromAsset = {
+        name,
+        symbol,
+        address,
+        decimals,
+      };
+      if (~FAVORITE_TOKENS.indexOf(symbol)) {
+        favoriteTokens[symbol] = fromAsset;
+      } else {
+        fromAssets.push(fromAsset);
+      }
+    }
 
     this.postMessageToIframe(sid, 'iframe-load', {
-      fromAssets,
+      fromAssets: [
+        ...FAVORITE_TOKENS.map(symbol => favoriteTokens[symbol]),
+        ..._orderBy(fromAssets, 'symbol'),
+      ],
       toAsset,
     });
   }

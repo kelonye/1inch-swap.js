@@ -21,13 +21,20 @@ class Swap {
 
     this.fromAssetContainer = document.querySelector('.from-asset');
     this.fromAssetAmountInput = this.fromAssetContainer.querySelector('input');
-    this.fromAssetSelect = this.fromAssetContainer.querySelector('select');
+    this.fromAssetButton = document.getElementById('from-asset-button');
+    this.fromAssetDropdown = document.getElementById('from-asset-dropdown');
+    this.fromAssetDropdownInput = document.getElementById(
+      'from-asset-dropdown-input'
+    );
+    this.fromAssetDropdownList = document.getElementById(
+      'from-asset-dropdown-list'
+    );
     this.fromBalance = document.getElementById('from-balance');
     this.fromAssetUSDEstimate = this.fromAssetContainer.querySelector('.usd');
 
     this.toAssetContainer = document.querySelector('.to-asset');
     this.toAssetAmountInput = this.toAssetContainer.querySelector('input');
-    this.toAssetSelect = this.toAssetContainer.querySelector('select');
+    this.toAssetButton = document.getElementById('to-asset-button');
     this.toAssetUSDEstimate = this.toAssetContainer.querySelector('.usd');
 
     this.quoteRate = document.getElementById('quote-rate');
@@ -39,17 +46,84 @@ class Swap {
   }
 
   setUpEventHandlers() {
-    _bindAll(this, 'handleMessage');
+    _bindAll(this, 'handleMessage', 'handleAssetChange');
     this.getQuote = _debounce(this.getQuoteDebounced.bind(this), 100);
+    this.handleFilterFromAssetDropdown = _debounce(
+      this.handleFilterFromAssetDropdownDebounced.bind(this),
+      100
+    );
 
     this.handleMessages();
 
     this.fromAssetAmountInput.oninput = e => this.handleAmountChange(e);
-    this.fromAssetSelect.onchange = e => this.handleAssetChange(e);
+    this.fromAssetButton.onclick = e => this.handleShowFromAssetDropdown(e);
+    this.fromAssetDropdownInput.oninput = e =>
+      this.handleFilterFromAssetDropdown();
 
     this.form.onsubmit = e => this.connectWalletOrApproveOrSwap(e);
 
     this.close.onclick = () => this.postMessageToParentWindow('cancel');
+
+    this.handleCloseAssetsDropdown();
+  }
+
+  handleCloseAssetsDropdown() {
+    window.onclick = event => {
+      if (!event.target.matches('.js-dropdown')) {
+        this.closeAssetsDropdown();
+      }
+    };
+  }
+
+  closeAssetsDropdown() {
+    dom.hide(this.fromAssetDropdown);
+  }
+
+  handleAmountChange(e) {
+    this.fromAssetAmount = parseFloat(e.target.value);
+    if (!this.fromAssetAmount) {
+      this.toAssetAmountInput.value = '0';
+      return;
+    }
+    this.getQuote();
+  }
+
+  handleShowFromAssetDropdown() {
+    if (this.working) return;
+    this.fromAssetDropdownInput.value = '';
+    this.handleFilterFromAssetDropdown();
+    dom.show(this.fromAssetDropdown);
+  }
+
+  handleFilterFromAssetDropdownDebounced() {
+    const els = document.createDocumentFragment();
+    const queryTerm = (this.fromAssetDropdownInput.value || '')
+      .trim()
+      .toLowerCase();
+    this.fromAssets.forEach((asset, index) => {
+      if (
+        asset.symbol !== this.toAsset.symbol &&
+        (!queryTerm || ~asset.name.toLowerCase().indexOf(queryTerm))
+      ) {
+        const el = document.createElement('div');
+        el.dataset.index = index;
+        el.innerText = `${asset.name} (${asset.symbol})`;
+        el.classList.add('cursor-pointer');
+        el.classList.add('js-dropdown');
+        el.onclick = this.handleAssetChange;
+        els.appendChild(el);
+      }
+    });
+    this.fromAssetDropdownList.innerHTML = '';
+    this.fromAssetDropdownList.appendChild(els);
+  }
+
+  handleAssetChange(e) {
+    const { index } = e.target.dataset;
+    this.fromAsset = this.fromAssets[parseInt(index)];
+    this.fromAssetButton.innerText = this.fromAsset.symbol;
+    this.closeAssetsDropdown();
+    this.getQuote();
   }
 
   handleMessages() {
@@ -89,9 +163,8 @@ class Swap {
   }
 
   setIsWorking(text) {
-    const working = !!text;
+    const working = (this.working = !!text);
     dom.attr(this.fromAssetAmountInput, 'disabled', working);
-    dom.attr(this.fromAssetSelect, 'disabled', working);
     dom.attr(this.button, 'disabled', working);
     if (working) {
       this.setButtonText(text);
@@ -129,20 +202,6 @@ class Swap {
     }
   }
 
-  handleAmountChange(e) {
-    this.fromAssetAmount = parseFloat(e.target.value);
-    if (!this.fromAssetAmount) {
-      this.toAssetAmountInput.value = '0';
-      return;
-    }
-    this.getQuote();
-  }
-
-  handleAssetChange(e) {
-    this.fromAsset = this.fromAssets[parseInt(e.target.value)];
-    this.getQuote();
-  }
-
   setButtonText(text) {
     this.button.innerHTML = text;
   }
@@ -165,6 +224,35 @@ class Swap {
     this.getQuote();
   }
 
+  onIframeLoad({ fromAssets, toAsset }) {
+    this.fromAssets = fromAssets;
+    for (let i = 0; i < fromAssets.length; i++) {
+      const fromAsset = fromAssets[i];
+      if (fromAsset.symbol !== toAsset.symbol) {
+        this.fromAssetButton.innerText = fromAsset.symbol;
+        this.fromAsset = fromAsset;
+        break;
+      }
+    }
+
+    this.toAsset = toAsset;
+    this.toAssetButton.innerHTML = this.toAsset.symbol;
+    this.toAssetAmountInput.value = this.toAsset.symbol;
+
+    dom.hide(this.loader);
+    dom.show(this.form);
+
+    // get initial quote in the reverse
+    const toAssetAmount = this.props.defaultAmount || 1;
+    this.postMessageToParentWindow('get-initial-quote', {
+      fromAssetAddress: this.fromAsset.address,
+      fromAssetDecimals: this.fromAsset.decimals,
+      toAssetAddress: toAsset.address,
+      toAssetDecimals: toAsset.decimals,
+      toAssetAmount,
+    });
+  }
+
   onConnect({ address }) {
     dom.hide(this.loader);
     dom.show(this.form);
@@ -178,33 +266,6 @@ class Swap {
     )}....${address.slice(-4)}`;
     dom.show(this.fromBalance);
     this.getQuote();
-  }
-
-  onIframeLoad({ fromAssets, toAsset }) {
-    const fromAsset = fromAssets[0];
-    this.fromAsset = fromAsset;
-    this.fromAssets = fromAssets;
-    this.fromAssetSelect.innerHTML = fromAssets
-      .map(({ symbol }, i) => `<option value=${i}>${symbol}</option>`)
-      .join('');
-    this.fromAssetSelect.value = 0;
-
-    this.toAsset = toAsset;
-    this.toAssetSelect.innerHTML = `<option>${this.toAsset.symbol}</option>`;
-    this.toAssetAmountInput.value = this.toAsset.symbol;
-
-    dom.hide(this.loader);
-    dom.show(this.form);
-
-    // get initial quote in the reverse
-    const toAssetAmount = this.props.defaultAmount || 1;
-    this.postMessageToParentWindow('get-initial-quote', {
-      fromAssetAddress: fromAsset.address,
-      fromAssetDecimals: fromAsset.decimals,
-      toAssetAddress: toAsset.address,
-      toAssetDecimals: toAsset.decimals,
-      toAssetAmount,
-    });
   }
 
   onGetQuote({

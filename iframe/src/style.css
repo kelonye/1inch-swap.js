@@ -118,13 +118,12 @@ form {
 }
 
 input:focus,
-select:focus,
 button:focus {
   outline: none !important;
 }
 
 input,
-select,
+.select,
 button {
   height: 44px;
   min-height: 24px;
@@ -137,24 +136,24 @@ button {
 }
 
 input,
-select {
+.select {
   border-radius: var(--radius);
 }
 
 .from-asset input:disabled,
-.from-asset select:disabled {
+.from-asset .select:disabled {
   background: white !important;
 }
 
 .to-asset,
 .to-asset input:disabled,
-.to-asset select:disabled {
+.to-asset .select:disabled {
   background: #eee !important;
 }
 
-select {
+.select {
   max-width: 80px;
-  @apply pr-0 mr-4;
+  @apply pr-0 cursor-pointer;
 }
 
 .select-input {
@@ -206,6 +205,44 @@ button:hover {
 
 .red {
   color: red;
+}
+
+#from-asset-dropdown-container {
+  position: relative;
+  display: inline-block;
+  @apply mr-4;
+}
+
+#from-asset-dropdown {
+  width: 300px;
+  position: absolute;
+  background-color: white;
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+  padding: 10px;
+  right: -140px;
+  border-radius: 8px;
+}
+
+#from-asset-dropdown:before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-bottom: 5px solid #ddd;
+  position: absolute;
+  top: -6px;
+  right: calc(50% - 5px);
+}
+
+#from-asset-dropdown-input {
+  padding: 0;
+}
+
+#from-asset-dropdown-list {
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 @keyframes loader {

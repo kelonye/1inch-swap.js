@@ -32,7 +32,18 @@
         </div>
         <div class="flex">
           <input step="any" type="text" placeholder="Amount" />
-          <select></select>
+          <div id="from-asset-dropdown-container" class="js-dropdown">
+            <div id="from-asset-button" class="select js-dropdown"></div>
+            <div id="from-asset-dropdown" class="hidden js-dropdown">
+              <input
+                id="from-asset-dropdown-input"
+                class="js-dropdown"
+                type="select"
+                placeholder="Try 'DAI'"
+              />
+              <div id="from-asset-dropdown-list" class="js-dropdown"></div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -48,7 +59,7 @@
         </div>
         <div class="flex">
           <input step="any" type="text" disabled />
-          <select disabled></select>
+          <div id="to-asset-button" class="select" disabled></div>
         </div>
       </div>
 
