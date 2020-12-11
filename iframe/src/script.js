@@ -108,7 +108,7 @@ class Swap {
         const el = document.createElement('div');
         el.dataset.index = index;
         el.innerText = `${asset.name} (${asset.symbol})`;
-        el.classList.add('cursor-pointer');
+        el.style.cursor = 'pointer';
         el.classList.add('js-dropdown');
         el.onclick = this.handleAssetChange;
         els.appendChild(el);

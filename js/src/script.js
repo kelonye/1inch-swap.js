@@ -10,7 +10,7 @@ import debug from './debug';
 const INFURA_ID = process.env.INFURA_ID;
 const IFRAME_HOST = process.env.IFRAME_HOST;
 const PRECISION = 4;
-const ETH_ONE_INCH_ADDR = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+const ETH_ONE_INCH_ADDR = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
 const SLIPPAGE = 1;
 const FAVORITE_TOKENS = [
@@ -226,7 +226,7 @@ class Swap {
   }
 
   async getAssetCoinGeckoIdMemoized(assetAddress) {
-    return assetAddress === ETH_ONE_INCH_ADDR
+    return isEth(assetAddress)
       ? 'ethereum'
       : (
           await request(
@@ -410,7 +410,7 @@ class Swap {
     let balance;
 
     if (this.address) {
-      if (fromAssetAddress === ETH_ONE_INCH_ADDR) {
+      if (isEth(fromAssetAddress)) {
         balance = await this.ethersWallet.getBalance();
       } else {
         const fromAssetContract = await this.getERC20Contract(fromAssetAddress);
@@ -536,6 +536,10 @@ async function request(url, query) {
     url += '?' + qs.stringify(query);
   }
   return await (await fetch(url)).json();
+}
+
+function isEth(addr) {
+  return addr.toLowerCase() === ETH_ONE_INCH_ADDR;
 }
 
 window.oneInch = function(options) {
