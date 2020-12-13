@@ -64,6 +64,9 @@ class Swap {
 
     this.close.onclick = () => this.postMessageToParentWindow('cancel');
 
+    this.addressLabel.querySelector('.disconnect').onclick = () =>
+      this.postMessageToParentWindow('disconnectWallet');
+
     this.handleCloseAssetsDropdown();
   }
 
@@ -260,11 +263,18 @@ class Swap {
     this.address = address;
     debug('connected', address);
     dom.show(this.addressLabel, 1);
-    this.addressLabel.querySelector('span').innerText = `${address.slice(
+    this.addressLabel.querySelector('.address').innerText = `${address.slice(
       0,
       6
     )}....${address.slice(-4)}`;
     dom.show(this.fromBalance);
+    this.getQuote();
+  }
+
+  onDisconnect() {
+    this.address = null;
+    dom.hide(this.addressLabel);
+    dom.hide(this.fromBalance);
     this.getQuote();
   }
 

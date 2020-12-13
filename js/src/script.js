@@ -252,48 +252,6 @@ class Swap {
     this.options.onCancel && this.options.onCancel();
   }
 
-  async onConnectWallet(sid) {
-    const { default: Web3Modal } = await import('web3modal');
-    const { default: MewConnect } = await import(
-      '@myetherwallet/mewconnect-web-client'
-    );
-    const { default: WalletConnectProvider } = await import(
-      '@walletconnect/web3-provider'
-    );
-
-    this.showIframe(false);
-
-    const web3Modal = new Web3Modal({
-      cacheProvider: true, // todo: provide a way for user to disconnect
-      providerOptions: {
-        mewconnect: {
-          package: MewConnect,
-          options: {
-            infuraId: INFURA_ID,
-          },
-        },
-        walletconnect: {
-          package: WalletConnectProvider,
-          options: {
-            infuraId: INFURA_ID,
-          },
-        },
-      },
-    });
-
-    this.web3Provider = await web3Modal.connect();
-    this.web3Provider.on('accountsChanged', () => {});
-    this.web3Provider.on('chainChanged', () => {});
-
-    this.ethersProvider = new this.ethers.providers.Web3Provider(
-      this.web3Provider
-    );
-    this.ethersWallet = this.ethersProvider.getSigner();
-    const address = (this.address = await this.ethersWallet.getAddress());
-    this.postMessageToIframe(sid, 'connect', { address });
-    this.showIframe(true);
-  }
-
   async onIframeLoad(sid, { toEthereum, toTokenAddress }) {
     const [
       { ethers },
@@ -350,6 +308,61 @@ class Swap {
       ],
       toAsset,
     });
+  }
+
+  async onConnectWallet(sid) {
+    if (!this.web3Modal) {
+      const { default: Web3Modal } = await import('web3modal');
+      const { default: MewConnect } = await import(
+        '@myetherwallet/mewconnect-web-client'
+      );
+      const { default: WalletConnectProvider } = await import(
+        '@walletconnect/web3-provider'
+      );
+
+      this.web3Modal = new Web3Modal({
+        cacheProvider: true, // todo: provide a way for user to disconnect
+        providerOptions: {
+          mewconnect: {
+            package: MewConnect,
+            options: {
+              infuraId: INFURA_ID,
+            },
+          },
+          walletconnect: {
+            package: WalletConnectProvider,
+            options: {
+              infuraId: INFURA_ID,
+            },
+          },
+        },
+      });
+    }
+
+    this.showIframe(false);
+
+    this.web3Provider = await this.web3Modal.connect();
+    this.web3Provider.on('accountsChanged', () => {});
+    this.web3Provider.on('chainChanged', () => {});
+
+    this.ethersProvider = new this.ethers.providers.Web3Provider(
+      this.web3Provider
+    );
+    this.ethersWallet = this.ethersProvider.getSigner();
+    const address = (this.address = await this.ethersWallet.getAddress());
+    this.postMessageToIframe(sid, 'connect', { address });
+    this.showIframe(true);
+  }
+
+  async onDisconnectWallet(sid) {
+    this.web3Modal.clearCachedProvider();
+
+    this.web3Provider = null;
+    this.ethersProvider = null;
+    this.ethersWallet = null;
+    this.address = null;
+
+    this.postMessageToIframe(sid, 'disconnect');
   }
 
   async onGetInitialQuote(
@@ -476,7 +489,7 @@ class Swap {
       await tx.wait();
       this.postMessageToIframe(sid, 'approve');
     } catch (err) {
-      debug('error %s', err.message);
+      console.error(err);
       this.postMessageToIframe(sid, 'error', err);
     }
   }
@@ -526,7 +539,7 @@ class Swap {
         transactionHash: tx.hash,
       });
     } catch (err) {
-      debug('error %s', err.message);
+      console.error(err);
       this.postMessageToIframe(sid, 'error', err);
     }
   }
