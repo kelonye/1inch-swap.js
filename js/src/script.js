@@ -11,7 +11,6 @@ const INFURA_ID = process.env.INFURA_ID;
 const IFRAME_HOST = process.env.IFRAME_HOST;
 const PRECISION = 4;
 const ETH_ONE_INCH_ADDR = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-const ONE_SPLIT_ADDRESS = '1proto.eth'; // '1split.eth';
 const SLIPPAGE = 1;
 const FAVORITE_TOKENS = [
   'ETH',
@@ -296,7 +295,16 @@ class Swap {
   }
 
   async onIframeLoad(sid, { toEthereum, toTokenAddress }) {
-    const { ethers } = await import('ethers');
+    const [
+      { ethers },
+      { tokens },
+      { address: spenderAddress },
+    ] = await Promise.all([
+      import('ethers'),
+      request('https://api.1inch.exchange/v2.0/tokens'),
+      request('https://api.1inch.exchange/v2.0/approve/spender'),
+    ]);
+
     this.ethers = ethers;
     this.defaultProvider = new ethers.providers.InfuraProvider(
       'homestead',
@@ -317,7 +325,6 @@ class Swap {
     }
 
     const favoriteTokens = {};
-    const { tokens } = await request('https://api.1inch.exchange/v2.0/tokens');
     const fromAssets = [];
     for (const address in tokens) {
       const { name, symbol, decimals } = tokens[address];
@@ -333,6 +340,8 @@ class Swap {
         fromAssets.push(fromAsset);
       }
     }
+
+    this.spenderAddress = spenderAddress;
 
     this.postMessageToIframe(sid, 'iframe-load', {
       fromAssets: [
@@ -417,7 +426,7 @@ class Swap {
         balance = await fromAssetContract.balanceOf(this.address);
         const allowance = await fromAssetContract.allowance(
           this.address,
-          ONE_SPLIT_ADDRESS
+          this.spenderAddress
         );
         approve = fromAssetAmount.gt(allowance);
       }
@@ -461,7 +470,7 @@ class Swap {
     const fromAssetContract = await this.getERC20Contract(fromAssetAddress);
     try {
       const tx = await fromAssetContract.approve(
-        ONE_SPLIT_ADDRESS,
+        this.spenderAddress,
         fromAssetAmount
       );
       await tx.wait();
