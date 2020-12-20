@@ -24,6 +24,12 @@ const FAVORITE_TOKENS = [
   'WETH',
 ];
 
+window.oneInch = function(options) {
+  debug('swap');
+  const swap = new Swap(options);
+  return () => swap.close.call(swap);
+};
+
 class Swap {
   constructor(options) {
     _bindAll(this, 'handleMessage');
@@ -127,10 +133,6 @@ class Swap {
     } catch (e) {
       this.options.onError && this.options.onError(e);
     }
-  }
-
-  showIframe(show) {
-    this.iframe.style.display = show ? 'flex' : 'none';
   }
 
   getSigner() {
@@ -272,7 +274,7 @@ class Swap {
     const toAsset = {};
     if (toEthereum) {
       toAsset.symbol = 'ETH';
-      toAsset.address = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+      toAsset.address = ETH_ONE_INCH_ADDR;
       toAsset.decimals = 18;
       toAsset.isETH = true;
     } else {
@@ -310,54 +312,43 @@ class Swap {
     });
   }
 
-  async onConnectWallet(sid) {
-    if (!this.web3Modal) {
-      const { default: Web3Modal } = await import('web3modal');
-      const { default: MewConnect } = await import(
-        '@myetherwallet/mewconnect-web-client'
-      );
-      const { default: WalletConnectProvider } = await import(
-        '@walletconnect/web3-provider'
-      );
-
-      this.web3Modal = new Web3Modal({
-        cacheProvider: true, // todo: provide a way for user to disconnect
-        providerOptions: {
-          mewconnect: {
-            package: MewConnect,
-            options: {
-              infuraId: INFURA_ID,
-            },
-          },
-          walletconnect: {
-            package: WalletConnectProvider,
-            options: {
-              infuraId: INFURA_ID,
-            },
-          },
-        },
-      });
+  async onConnectMetamask(sid) {
+    if (!window.ethereum) {
+      return alert('Please install Metamask extension'); // todo: better error message or hide option
     }
+    this.connectProvider(sid, window.ethereum);
+  }
 
-    this.showIframe(false);
-
-    this.web3Provider = await this.web3Modal.connect();
-    this.web3Provider.on('accountsChanged', () => {});
-    this.web3Provider.on('chainChanged', () => {});
-
-    this.ethersProvider = new this.ethers.providers.Web3Provider(
-      this.web3Provider
+  async onConnectWalletConnect(sid) {
+    const { default: WalletConnectProvider } = await import(
+      '@walletconnect/web3-provider'
     );
+    this.connectProvider(
+      sid,
+      new WalletConnectProvider({
+        infuraId: INFURA_ID,
+      })
+    );
+  }
+
+  async connectProvider(sid, web3Provider) {
+    await web3Provider.enable();
+    this.web3Provider = web3Provider;
+
+    web3Provider.on('accountsChanged', () => {});
+    web3Provider.on('chainChanged', () => {});
+
+    this.ethersProvider = new this.ethers.providers.Web3Provider(web3Provider);
+
     this.ethersWallet = this.ethersProvider.getSigner();
+
     const address = (this.address = await this.ethersWallet.getAddress());
     this.postMessageToIframe(sid, 'connect', { address });
-    this.showIframe(true);
   }
 
   async onDisconnectWallet(sid) {
-    this.web3Modal.clearCachedProvider();
+    await this.web3Provider?.disconnect?.();
 
-    this.web3Provider = null;
     this.ethersProvider = null;
     this.ethersWallet = null;
     this.address = null;
@@ -563,9 +554,3 @@ async function request(url, query) {
 function isEth(addr) {
   return addr.toLowerCase() === ETH_ONE_INCH_ADDR;
 }
-
-window.oneInch = function(options) {
-  debug('swap');
-  const swap = new Swap(options);
-  return () => swap.close.call(swap);
-};

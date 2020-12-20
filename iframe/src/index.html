@@ -17,7 +17,7 @@
 
     <form class="flex-col items-center hidden relative">
       <div id="close">✕</div>
-      <p id="address" class="hidden">
+      <p id="address" class="mb-4 hidden">
         Connected as <span class="address"></span>
         <span class="disconnect cursor-pointer">(Disconnect)</span>
       </p>
@@ -66,7 +66,7 @@
         </div>
       </div>
 
-      <div class="flex flex-col my-4 text-xs">
+      <div class="flex flex-col mb-4 text-xs">
         <div class="flex">
           <div class="flex-grow">Rate</div>
           <div id="quote-rate"></div>
@@ -81,7 +81,18 @@
         </div>
       </div>
 
-      <button class="round my-4" type="submit">Connect Wallet</button>
+      <button class="round mb-4" type="submit">Connect Wallet</button>
+
+      <div id="wallets" class="hidden">
+        <div id="metamask">
+          <img src="wallets/metamask.svg" width="35" height="35" />
+          <div class="ml-5">Metamask</div>
+        </div>
+        <div id="wallet-connect">
+          <img src="wallets/wallet-connect.svg" width="35" height="35" />
+          <div class="ml-5">Wallet Connect</div>
+        </div>
+      </div>
 
       <div class="flex justify-end mt-4">
         <a

@@ -5,6 +5,8 @@ import debug from './debug';
 import * as qs from './qs';
 import * as dom from './dom';
 
+const WALLET_CACHE_KEY = 'WEB3_CONNECTED_PROVIDER';
+
 window.onload = () => new Swap();
 
 class Swap {
@@ -41,6 +43,10 @@ class Swap {
     this.quotePriceImpact = document.getElementById('quote-price-impact');
     this.quoteFee = document.getElementById('quote-fee');
 
+    this.walletsContainer = document.getElementById('wallets');
+    this.metamaskEl = document.getElementById('metamask');
+    this.walletConnectEl = document.getElementById('wallet-connect');
+
     this.setUpEventHandlers();
     this.load();
   }
@@ -68,6 +74,15 @@ class Swap {
       this.postMessageToParentWindow('disconnectWallet');
 
     this.handleCloseAssetsDropdown();
+
+    this.metamaskEl.onclick = () => {
+      this.web3ProviderName = 'metamask';
+      this.postMessageToParentWindow('connect-metamask');
+    };
+    this.walletConnectEl.onclick = () => {
+      this.web3ProviderName = 'wallet-connect';
+      this.postMessageToParentWindow('connect-wallet-connect');
+    };
   }
 
   handleCloseAssetsDropdown() {
@@ -179,10 +194,15 @@ class Swap {
     e.stopPropagation();
 
     if (!this.address) {
-      debug('connecting wallet..');
-      dom.show(this.loader);
-      dom.hide(this.form);
-      this.postMessageToParentWindow('connect-wallet');
+      this.web3ProviderName = window.localStorage.getItem(WALLET_CACHE_KEY);
+      if (this.web3ProviderName) {
+        debug(`connecting to ${this.web3ProviderName}..`);
+        this.postMessageToParentWindow(`connect-${this.web3ProviderName}`);
+      } else {
+        debug('showing wallets..');
+        dom.show(this.walletsContainer);
+        dom.hide(this.button);
+      }
     } else if (this.approve) {
       debug('approving..');
       this.setIsWorking('Approving..');
@@ -257,8 +277,9 @@ class Swap {
   }
 
   onConnect({ address }) {
-    dom.hide(this.loader);
-    dom.show(this.form);
+    window.localStorage.setItem(WALLET_CACHE_KEY, this.web3ProviderName);
+    dom.hide(this.walletsContainer);
+    dom.show(this.button);
 
     this.address = address;
     debug('connected', address);
@@ -272,6 +293,7 @@ class Swap {
   }
 
   onDisconnect() {
+    window.localStorage.removeItem(WALLET_CACHE_KEY);
     this.address = null;
     dom.hide(this.addressLabel);
     dom.hide(this.fromBalance);

@@ -128,7 +128,6 @@ button {
   height: 44px;
   min-height: 24px;
   width: 100%;
-  display: flex;
   flex: 1;
   align-items: center;
   justify-content: center;
@@ -138,6 +137,7 @@ button {
 input,
 .select {
   border-radius: var(--radius);
+  @apply flex;
 }
 
 .from-asset input:disabled,
@@ -254,6 +254,25 @@ button:hover {
   border-top: 3px solid #141414;
   position: absolute;
   right: -7px;
+}
+
+#wallets {
+  border: 2px solid #eee;
+  border-radius: 8px;
+  @apply flex-col mt-2;
+}
+
+#metamask,
+#wallet-connect {
+  @apply flex items-center cursor-pointer py-2 px-5;
+}
+
+#metamask {
+  border-bottom: 1px solid #eee;
+}
+
+#wallet-connect {
+  border-top: 1px solid #eee;
 }
 
 @keyframes loader {
